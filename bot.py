@@ -6,9 +6,10 @@ POLYMARKET_API = "https://api.polymarket.com"
 
 MARKET_SLUG = "bitcoin-above-66k-on-february-11"
 
-BUY_PRICE = 0.50
-SELL_PRICE = 0.51
+GRID_BUY_PRICES = [0.40, 0.35, 0.30, 0.25, 0.20, 0.15, 0.10]
+TAKE_PROFIT = 0.01
 ORDER_SIZE_USD = 5
+
 
 API_KEY = os.getenv("POLYMARKET_API_KEY")
 WALLET = os.getenv("POLYMARKET_WALLET")
