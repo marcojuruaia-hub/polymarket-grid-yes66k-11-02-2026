@@ -14,7 +14,7 @@ GRID_COMPRA_FIM = 0.10
 PASSO_COMPRA = 0.02
 
 def main():
-    print(">>> ROBÔ GRID - MODO DEBUG <<<")
+    print(">>> ROBÔ GRID V6 (CORREÇÃO GTC) <<<")
     
     key = os.getenv("PRIVATE_KEY")
     if not key:
@@ -32,6 +32,7 @@ def main():
         print(f"Erro Conexão: {e}")
         sys.exit(1)
 
+    # Cria lista de preços
     grid_compras = []
     p = GRID_COMPRA_INICIO
     while p >= GRID_COMPRA_FIM:
@@ -41,11 +42,11 @@ def main():
     while True:
         print("\n--- Tentando Operar ---")
         
-        # TENTA COMPRAR (E MOSTRA O ERRO SE FALHAR)
+        # --- COMPRA ---
         for preco in grid_compras:
             try:
                 qtd = round(VALOR_ORDEM_USD / preco, 2)
-                print(f"Tentando comprar {qtd} a ${preco}...")
+                # print(f"Tentando comprar {qtd} a ${preco}...")
                 
                 resp = client.create_and_post_order(
                     OrderArgs(
@@ -53,13 +54,36 @@ def main():
                         size=qtd,
                         side="BUY", 
                         token_id=TOKEN_ID,
-                        order_type=OrderType.LIMIT
+                        order_type=OrderType.GTC # <--- CORREÇÃO AQUI (Era LIMIT)
                     )
                 )
-                print(f"✅ SUCESSO! ID da Ordem: {resp.get('orderID')}")
+                print(f"✅ SUCESSO! Compra colocada a ${preco}. ID: {resp.get('orderID')}")
             except Exception as e:
-                # AQUI ESTÁ A MUDANÇA: Vamos ver o erro!
-                print(f"❌ FALHA ao comprar a ${preco}: {e}")
+                # Se for erro de saldo, avisa. Se for outro, mostra também.
+                msg = str(e)
+                if "balance" in msg.lower():
+                     print(f"⚠️ Saldo insuficiente para comprar a ${preco} (Precisa de USDC na Polygon)")
+                else:
+                     print(f"❌ Erro ao comprar a ${preco}: {msg}")
+
+        # --- VENDA (Para realizar lucro) ---
+        for preco_compra in grid_compras:
+            preco_venda = round(preco_compra + LUCRO, 2)
+            try:
+                qtd = round(VALOR_ORDEM_USD / preco_compra, 2)
+                if preco_venda < 1.0:
+                    resp = client.create_and_post_order(
+                        OrderArgs(
+                            price=preco_venda,
+                            size=qtd,
+                            side="SELL",
+                            token_id=TOKEN_ID,
+                            order_type=OrderType.GTC # <--- CORREÇÃO AQUI
+                        )
+                    )
+                    print(f"💰 VENDA colocada a ${preco_venda}. ID: {resp.get('orderID')}")
+            except Exception as e:
+                pass # Ignora erro na venda (provavelmente pq ainda nao comprou)
 
         print("Aguardando 30 segundos...")
         time.sleep(30)
