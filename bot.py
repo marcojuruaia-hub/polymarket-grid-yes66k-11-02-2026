@@ -8,13 +8,13 @@ from py_clob_client.clob_types import OrderArgs, OrderType
 
 # --- CONFIGURAÇÕES ---
 MARKET_SLUG = "bitcoin-above-66k-on-february-11"
-VALOR_ORDEM_USD = 5.00
+VALOR_ORDEM_USD = 1.00
 LUCRO = 0.01
 
 # Grid de Compra
-GRID_COMPRA_INICIO = 0.50
+GRID_COMPRA_INICIO = 0.40
 GRID_COMPRA_FIM = 0.10
-PASSO_COMPRA = 0.05
+PASSO_COMPRA = 0.02
 
 def get_yes_token_id():
     """Busca o ID Hexadecimal do YES"""
