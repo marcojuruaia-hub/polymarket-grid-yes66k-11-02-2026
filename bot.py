@@ -7,11 +7,11 @@ from py_clob_client.order_builder.constants import BUY, SELL
 
 # --- CONFIGURAÇÕES ---
 TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
-VALOR_ORDEM_USD = 2.50  
+VALOR_ORDEM_USD = 1.00  
 LUCRO = 0.01
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
 
-GRID_COMPRA = [0.50, 0.45, 0.40, 0.35, 0.30]
+GRID_COMPRA = [0.30, 0.25, 0.20, 0.15, 0.10]
 
 def get_precos_abertos(client):
     """Verifica quais preços já têm ordens abertas para evitar duplicidade"""
