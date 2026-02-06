@@ -1,40 +1,91 @@
-import requests
+import os
 import time
+import requests
+import json
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import OrderArgs, OpenOrderParams
+from py_clob_client.order_builder.constants import BUY, SELL
 
-def raio_x_polymarket():
-    print("\n" + "="*50)
-    print("🔎 INICIANDO RAIO-X DAS ELEIÇÕES BRASIL 2026")
-    print("="*50)
-    
-    # Tentamos os dois formatos de slug possíveis
-    slugs = ["brazil-presidential-election-2026", "brazil-presidential-election"]
-    
-    for slug in slugs:
-        url = f"https://gamma-api.polymarket.com/events?slug={slug}"
+# --- CONFIGURAÇÕES FIXAS ---
+PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
+BTC_TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
+
+# --- CONFIGURAÇÕES DE GRID ---
+BTC_GRID = [0.50, 0.45, 0.40, 0.35, 0.30, 0.25, 0.20, 0.15, 0.10, 0.05, 0.01]
+LULA_GRID = [round(x * 0.01, 2) for x in range(52, 39, -1)]
+
+def buscar_id_lula():
+    """Busca o ID do Lula e limpa caracteres extras se necessário"""
+    try:
+        url = "https://gamma-api.polymarket.com/events?slug=brazil-presidential-election-2026"
+        resp = requests.get(url).json()
+        for event in resp:
+            for m in event.get("markets", []):
+                if "Lula" in m.get("question", ""):
+                    ids = m.get("clobTokenIds")
+                    # Se vier como string ["123"], transformamos em lista real
+                    if isinstance(ids, str):
+                        ids = json.loads(ids.replace("'", '"'))
+                    return ids[0] if ids else None
+    except Exception as e:
+        print(f"⚠️ Erro ao buscar ID do Lula: {e}")
+    return None
+
+def calcular_qtd(preco):
+    """Regra: 5 shares se > 0.20, senão $1.00 de valor total"""
+    return 5.0 if preco > 0.20 else round(1.0 / preco, 2)
+
+def main():
+    print(">>> 🚀 ROBÔ V33: BITCOIN + LULA (ID AUTO) <<<")
+    key = os.getenv("PRIVATE_KEY")
+    client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137, signature_type=2, funder=PROXY_ADDRESS)
+    client.set_api_creds(client.create_or_derive_api_creds())
+
+    while True:
         try:
-            resp = requests.get(url).json()
-            for event in resp:
-                for market in event.get("markets", []):
-                    # Aqui pegamos a pergunta e os IDs
-                    question = market.get("question", "Sem nome")
-                    # No sistema novo, os IDs ficam em clobTokenIds
-                    ids = market.get("clobTokenIds", [])
-                    
-                    print(f"\n📌 MERCADO: {question}")
-                    if ids:
-                        print(f"✅ ID YES: {ids[0]}")
-                        if len(ids) > 1:
-                            print(f"❌ ID NO:  {ids[1]}")
-                    else:
-                        print("⚠️  Nenhum ID encontrado para este mercado.")
-        except Exception as e:
-            print(f"❌ Erro ao acessar slug {slug}: {e}")
+            # 1. Busca ID do Lula dinamicamente
+            lula_id = buscar_id_lula()
+            
+            print("\n>>> Lendo ordens abertas...")
+            ordens = client.get_orders(OpenOrderParams())
+            
+            # --- LOOP BITCOIN ---
+            print("--- [BITCOIN] ---")
+            ativos_btc = [round(float(o.get('price')), 2) for o in ordens if o.get('asset_id') == BTC_TOKEN_ID]
+            for p in BTC_GRID:
+                if p not in ativos_btc:
+                    try:
+                        client.create_and_post_order(OrderArgs(price=p, size=calcular_qtd(p), side=BUY, token_id=BTC_TOKEN_ID))
+                        print(f"✅ BTC: Compra a ${p}")
+                    except: pass
 
-    print("\n" + "="*50)
-    print("FIM DA VARREDURA. PROCURE O LULA NA LISTA ACIMA!")
-    print("="*50)
+            # --- LOOP LULA ---
+            if lula_id:
+                print(f"--- [LULA - ID: {lula_id[:10]}...] ---")
+                ativos_lula = [round(float(o.get('price')), 2) for o in ordens if o.get('asset_id') == lula_id]
+                for p in LULA_GRID:
+                    if p not in ativos_lula:
+                        try:
+                            qtd = calcular_qtd(p)
+                            client.create_and_post_order(OrderArgs(price=p, size=qtd, side=BUY, token_id=lula_id))
+                            print(f"✅ LULA: Compra a ${p}")
+                        except Exception as e:
+                            if "balance" in str(e).lower(): print(f"⚠️ Sem saldo para Lula a ${p}")
+                    
+                    # VENDA LULA (Lucro 0.01)
+                    preco_v = round(p + 0.01, 2)
+                    if preco_v not in ativos_lula:
+                        try:
+                            client.create_and_post_order(OrderArgs(price=preco_v, size=calcular_qtd(p), side=SELL, token_id=lula_id))
+                        except: pass
+            else:
+                print("❌ LULA: ID não encontrado neste ciclo.")
+
+        except Exception as e:
+            print(f"⚠️ Erro no ciclo: {e}")
+
+        print("\n--- 😴 Aguardando 2 minutos ---")
+        time.sleep(120)
 
 if __name__ == "__main__":
-    while True:
-        raio_x_polymarket()
-        time.sleep(300)
+    main()
