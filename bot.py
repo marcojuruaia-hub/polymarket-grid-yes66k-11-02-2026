@@ -1,46 +1,40 @@
-import os
-import time
 import requests
-from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OpenOrderParams
-from py_clob_client.order_builder.constants import BUY, SELL
+import time
 
-# --- CONFIGURAÇÕES ---
-PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
-BTC_TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
-
-# --- COLE O ID QUE VOCÊ ACHAR NA URL AQUI ---
-LULA_TOKEN_ID = "COLE_O_ID_DA_URL_AQUI" 
-
-def main():
-    print(">>> 🕵️ ROBÔ V31: MODO DETETIVE ATIVADO <<<")
-    key = os.getenv("PRIVATE_KEY")
-    client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137, signature_type=2, funder=PROXY_ADDRESS)
-    client.set_api_creds(client.create_or_derive_api_creds())
-
-    while True:
+def raio_x_polymarket():
+    print("\n" + "="*50)
+    print("🔎 INICIANDO RAIO-X DAS ELEIÇÕES BRASIL 2026")
+    print("="*50)
+    
+    # Tentamos os dois formatos de slug possíveis
+    slugs = ["brazil-presidential-election-2026", "brazil-presidential-election"]
+    
+    for slug in slugs:
+        url = f"https://gamma-api.polymarket.com/events?slug={slug}"
         try:
-            # TENTA BUSCAR O ID AUTOMATICAMENTE SE VOCÊ NÃO COLOU
-            if LULA_TOKEN_ID == "COLE_O_ID_DA_URL_AQUI":
-                print("🔎 Buscando IDs de eleição na API...")
-                url = "https://gamma-api.polymarket.com/events?slug=brazil-presidential-election-2026"
-                data = requests.get(url).json()
-                for event in data:
-                    for m in event.get("markets", []):
-                        q = m.get("question", "")
-                        ids = m.get("clobTokenIds", [])
-                        print(f"📌 Mercado: {q} | IDs: {ids}")
-            
-            print("\n>>> Lendo ordens...")
-            ordens = client.get_orders(OpenOrderParams())
-            
-            # (O resto do código de Bitcoin continua igual aqui...)
-            # ... mas foque no log acima para achar o ID correto!
-
+            resp = requests.get(url).json()
+            for event in resp:
+                for market in event.get("markets", []):
+                    # Aqui pegamos a pergunta e os IDs
+                    question = market.get("question", "Sem nome")
+                    # No sistema novo, os IDs ficam em clobTokenIds
+                    ids = market.get("clobTokenIds", [])
+                    
+                    print(f"\n📌 MERCADO: {question}")
+                    if ids:
+                        print(f"✅ ID YES: {ids[0]}")
+                        if len(ids) > 1:
+                            print(f"❌ ID NO:  {ids[1]}")
+                    else:
+                        print("⚠️  Nenhum ID encontrado para este mercado.")
         except Exception as e:
-            print(f"⚠️ Erro: {e}")
-        
-        time.sleep(60)
+            print(f"❌ Erro ao acessar slug {slug}: {e}")
+
+    print("\n" + "="*50)
+    print("FIM DA VARREDURA. PROCURE O LULA NA LISTA ACIMA!")
+    print("="*50)
 
 if __name__ == "__main__":
-    main()
+    while True:
+        raio_x_polymarket()
+        time.sleep(300)
