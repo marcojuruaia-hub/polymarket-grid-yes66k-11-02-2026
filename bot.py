@@ -11,7 +11,7 @@ PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
 LUCRO = 0.01
 
 # Grid de 0.50 até 0.01 (Passo de 0.05 para não sobrecarregar, ajuste se quiser)
-GRID_COMPRA = [0.50, 0.45, 0.40, 0.35, 0.30, 0.25, 0.20, 0.15, 0.10, 0.05, 0.01]
+GRID_COMPRA = [0.20, 0.15, 0.10, 0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.01]
 
 def get_precos_abertos(client):
     try:
