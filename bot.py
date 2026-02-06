@@ -25,27 +25,28 @@ def main():
         client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137)
         print(">>> Conectado. Tentando resolver o conflito de API...")
 
-        # --- ESTRATÉGIA DE LIMPEZA ---
+        # --- ESTRATÉGIA DE LIMPEZA E CRIAÇÃO ---
         try:
             # Tenta criar a chave normalmente
             client.create_api_key()
             print(">>> ✅ Chave criada de primeira!")
         except Exception as e:
             msg = str(e).lower()
+            # Se der erro dizendo que já existe...
             if "exists" in msg or "already" in msg or "400" in msg:
-                print(">>> ⚠️ Chave antiga detectada. Iniciando remoção forçada...")
+                print(">>> ⚠️ Chave antiga detectada. Forçando remoção...")
                 try:
                     # Tenta DELETAR a chave antiga usando a assinatura da carteira
                     client.delete_api_key()
-                    print(">>> 🗑️ Chave antiga DELETADA com sucesso!")
-                    time.sleep(2)
+                    print(">>> 🗑️ Chave antiga DELETADA com sucesso! (Adeus conflito)")
+                    time.sleep(3) # Dá um tempo pro sistema processar
                     
-                    # Tenta criar de novo agora que está limpo
+                    # Cria a nova chave limpa
                     client.create_api_key()
-                    print(">>> ✅ Nova Chave criada com sucesso!")
+                    print(">>> ✅ Nova Chave criada com sucesso! Agora vai!")
                 except Exception as e2:
-                    print(f">>> ❌ Falha ao deletar chave: {e2}")
-                    # Tenta derivar como última esperança
+                    print(f">>> ❌ Falha ao deletar chave via código: {e2}")
+                    # Tenta derivar como última esperança (se for compatível)
                     try:
                         client.derive_api_key()
                         print(">>> ✅ Chave derivada (recuperada)!")
@@ -56,7 +57,7 @@ def main():
 
     except Exception as e:
         print(f"Erro Geral de Conexão: {e}")
-        # Segue o baile para tentar operar mesmo assim
+        # Segue o baile para tentar operar
 
     # --- INÍCIO DAS OPERAÇÕES ---
     grid_compras = []
@@ -86,8 +87,7 @@ def main():
                 if "balance" in msg.lower():
                      print(f"⚠️ Saldo insuficiente para comprar a ${preco}")
                 elif "credentials" in msg.lower():
-                     print("❌ ERRO DE CREDENCIAIS: O reset não funcionou.")
-                     print("SOLUÇÃO FINAL: Vá em https://polymarket.com/settings e procure 'API Keys' para deletar.")
+                     print("❌ ERRO: O robô ainda está sem permissão.")
                 else:
                      print(f"❌ Erro ao comprar a ${preco}: {msg}")
 
