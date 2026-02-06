@@ -4,84 +4,86 @@ import sys
 import requests
 from py_clob_client.client import ClobClient
 
-# --- CONFIGURAÇÕES DE MERCADO (CORRIGIDO) ---
-# Link original: polymarket.com/event/bitcoin-above-on-february-11/bitcoin-above-66k-on-february-11
-# O sistema precisa separar o "Evento" do "Mercado" para achar o ID.
+# --- CONFIGURAÇÕES ---
+# Slug exato da aposta (copiado do seu link)
+MARKET_SLUG = "bitcoin-above-66k-on-february-11"
 
-EVENT_SLUG = "bitcoin-above-on-february-11"       # O Grupo de apostas
-MARKET_SLUG = "bitcoin-above-66k-on-february-11"  # A sua aposta específica
+# Seus valores:
+VALOR_ORDEM_USD = 5.00
+GRID_INICIAL = 0.40
+GRID_FINAL = 0.10
+PASSO = 0.05
 
-# --- SEUS VALORES ---
-VALOR_ORDEM_USD = 5.00  # $5 por ordem
-GRID_INICIAL = 0.50     # Começa a comprar em 50 centavos
-GRID_FINAL = 0.10       # Para em 10 centavos
-PASSO = 0.05            # Desce de 5 em 5 centavos
-
-def get_token_id():
-    """Busca o ID do token YES automaticamente usando o Event Slug correto"""
+def get_yes_token_id():
+    """Busca o ID do YES direto no mercado"""
+    print(f"Buscando ID para: {MARKET_SLUG}...")
     try:
-        # Busca pelo EVENTO primeiro (que contém vários mercados)
-        url = f"https://gamma-api.polymarket.com/events?slug={EVENT_SLUG}"
+        # Usa o endpoint de Markets (mais preciso que Events)
+        url = f"https://gamma-api.polymarket.com/markets?slug={MARKET_SLUG}"
         resp = requests.get(url).json()
-        
-        if not resp:
-            print("ERRO: API retornou lista vazia. Verifique o EVENT_SLUG.")
-            return None
 
-        # Procura o MERCADO exato dentro do evento
-        for market in resp[0]['markets']:
-            if market['slug'] == MARKET_SLUG:
-                print(f"Mercado encontrado: {market['question']}")
-                # O ID do 'YES' é geralmente o primeiro da lista [0] ou [1]. 
-                # Na Polymarket CLOB, IDs são strings longas.
-                return market['clobTokenIds'][0] 
-                
-        print("Mercado não encontrado dentro do evento.")
-        return None
+        if not resp:
+            print("ERRO: A API não encontrou esse mercado. Verifique o link.")
+            return None
+        
+        market = resp[0] # Pega o primeiro resultado
+        
+        # Lógica inteligente para achar o 'YES'
+        # A API retorna outcomes tipo ["No", "Yes"] ou ["Yes", "No"]
+        try:
+            index_yes = market['outcomes'].index("Yes") # Descobre em qual posição está o Yes
+        except ValueError:
+            # Caso esteja escrito de forma diferente (ex: YES, Sim)
+            index_yes = 1 if "Yes" in str(market['outcomes']) else 0
+
+        token_id = market['clobTokenIds'][index_yes]
+        print(f"SUCESSO! Mercado: {market['question']}")
+        print(f"ID do YES encontrado: {token_id}")
+        return token_id
+
     except Exception as e:
-        print(f"Erro ao buscar ID: {e}")
+        print(f"Erro na busca: {e}")
         return None
 
 def main():
-    print(">>> Iniciando Robô Grid Polymarket v2 (Fix ID)...")
+    print(">>> Iniciando Robô Grid v3 (Busca Direta)...")
 
-    # 1. Busca o ID
-    token_id = get_token_id()
+    # 1. Pega o ID
+    token_id = get_yes_token_id()
     if not token_id:
-        print("ERRO CRÍTICO: ID não encontrado. O robô vai parar.")
+        print("FALHA FATAL: Não temos o ID para negociar.")
         sys.exit(1)
-    print(f"ID do Mercado (YES): {token_id}")
 
-    # 2. Conexão
+    # 2. Conecta
     key = os.getenv("PRIVATE_KEY")
     if not key:
-        print("ERRO: Configure a PRIVATE_KEY no Railway.")
+        print("ERRO: PRIVATE_KEY não configurada no Railway.")
         sys.exit(1)
 
     try:
         client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137)
         client.create_api_key()
-        print(">>> Conectado com sucesso!")
+        print(">>> Conectado ao Polymarket!")
     except Exception as e:
         print(f"Aviso de conexão: {e}")
 
-    # 3. Definição do Grid
+    # 3. Cria o Grid
     precos_compra = []
     p = GRID_INICIAL
     while p >= GRID_FINAL:
         precos_compra.append(round(p, 2))
         p -= PASSO
     
-    print(f"Níveis de compra: {precos_compra}")
+    print(f"Grid configurado: {precos_compra}")
 
+    # 4. Loop
     while True:
-        print("\n--- Analisando Mercado ---")
-        # Simulação de segurança
+        print("\n--- Ciclo de Verificação ---")
         for preco in precos_compra:
             qtd = round(VALOR_ORDEM_USD / preco, 2)
-            print(f"Grid {preco}: Compraria {qtd} cotas (ID: {token_id})")
+            print(f"Compraria {qtd} cotas a ${preco} (ID: {token_id})")
         
-        print("Aguardando 60 segundos...")
+        print("Dormindo 60s...")
         time.sleep(60)
 
 if __name__ == "__main__":
