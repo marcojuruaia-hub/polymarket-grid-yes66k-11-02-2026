@@ -8,9 +8,8 @@ from py_clob_client.clob_types import OrderArgs, OpenOrderParams
 from py_clob_client.order_builder.constants import BUY, SELL
 
 # ==========================================================
-# 🎯 MUDANÇA MANUAL (Cole aqui o ID que você achar no log)
+# 🎯 MUDANÇA MANUAL (Cole aqui o ID que você escolher do log)
 # ==========================================================
-# ID atual que você está testando (Mude aqui depois de ver o log)
 BTC_TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993897148"
 # ==========================================================
 
@@ -24,51 +23,62 @@ def extrair_id_limpo(dado):
     match = re.search(r'\d{30,}', str(dado))
     return match.group(0) if match else None
 
-def scanner_2026():
-    """Escaneia apenas a pasta de Bitcoin de Fevereiro 2026"""
-    print("\n" + "="*60)
-    print("🔎 ESCANEANDO OPÇÕES PARA FEVEREIRO 2026...")
-    print("="*60)
+def scanner_futuro():
+    """Escaneia mercados de Bitcoin para os dias 11 e 12"""
+    print("\n" + "═"*60)
+    print("🔎 BUSCANDO MERCADOS PARA 11 E 12 DE FEVEREIRO...")
+    print("═"*60)
     try:
-        # Focamos no slug da 'pasta' de 2026
-        url = "https://gamma-api.polymarket.com/events?slug=bitcoin-above-on-february-6"
+        # Busca ampla por Bitcoin
+        url = "https://gamma-api.polymarket.com/markets?active=true&query=Bitcoin&limit=100"
         resp = requests.get(url).json()
-        for event in resp:
-            for m in event.get("markets", []):
-                q = m.get("question", "")
+        encontrados = 0
+        for m in resp:
+            q = m.get("question", "")
+            # Filtra apenas dias 11 e 12
+            if ("February 11" in q or "February 12" in q) and "Bitcoin" in q:
                 ids = m.get("clobTokenIds")
                 if ids:
                     clean_id = extrair_id_limpo(ids)
                     print(f"📌 {q}")
                     print(f"👉 ID PARA COPIAR: {clean_id}\n")
+                    encontrados += 1
+        if encontrados == 0:
+            print("⚠️ Nenhum mercado para dia 11 ou 12 encontrado na busca rápida.")
+            print("Tentando busca por evento...")
+            # Tentativa alternativa via Slug de evento
+            url_alt = "https://gamma-api.polymarket.com/events?slug=bitcoin-above-on-february-11"
+            resp_alt = requests.get(url_alt).json()
+            for e in resp_alt:
+                for m in e.get("markets", []):
+                    print(f"📌 {m.get('question')}")
+                    print(f"👉 ID PARA COPIAR: {extrair_id_limpo(m.get('clobTokenIds'))}\n")
     except Exception as e:
         print(f"⚠️ Erro no scanner: {e}")
-    print("="*60 + "\n")
+    print("═"*60 + "\n")
 
 def buscar_id_lula_v34():
-    slugs = ["brazil-presidential-election-2026", "brazil-presidential-election"]
-    for slug in slugs:
-        try:
-            url = f"https://gamma-api.polymarket.com/events?slug={slug}"
-            resp = requests.get(url).json()
-            for event in resp:
-                for m in event.get("markets", []):
-                    if "Lula" in m.get("question", ""):
-                        return extrair_id_limpo(m.get("clobTokenIds"))
-        except: continue
+    url = "https://gamma-api.polymarket.com/events?slug=brazil-presidential-election-2026"
+    try:
+        resp = requests.get(url).json()
+        for event in resp:
+            for m in event.get("markets", []):
+                if "Lula" in m.get("question", ""):
+                    return extrair_id_limpo(m.get("clobTokenIds"))
+    except: pass
     return None
 
 def calcular_qtd(preco):
     return 5.0 if preco > 0.20 else round(1.0 / preco, 2)
 
 def main():
-    print(">>> 🚀 ROBÔ V34.1: MODO SCANNER 2026 ATIVADO <<<")
+    print(">>> 🚀 ROBÔ V34.2: SCANNER 11/12 FEV ATIVADO <<<")
     key = os.getenv("PRIVATE_KEY")
     client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137, signature_type=2, funder=PROXY_ADDRESS)
     client.set_api_creds(client.create_or_derive_api_creds())
 
-    # Roda o scanner focado em 2026
-    scanner_2026()
+    # Roda o scanner focado no futuro
+    scanner_futuro()
 
     while True:
         try:
@@ -96,7 +106,6 @@ def main():
                         except: pass
         except Exception as e:
             print(f"⚠️ Erro: {e}")
-
         time.sleep(30)
 
 if __name__ == "__main__":
