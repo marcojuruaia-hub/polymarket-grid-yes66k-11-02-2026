@@ -6,15 +6,14 @@ from py_clob_client.clob_types import OrderArgs
 
 # --- CONFIGURAÇÕES ---
 TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
-VALOR_ORDEM_USD = 5.00
+VALOR_ORDEM_USD = 1.00
 LUCRO = 0.01
-
-GRID_COMPRA_INICIO = 0.50
+GRID_COMPRA_INICIO = 0.40
 GRID_COMPRA_FIM = 0.10
-PASSO_COMPRA = 0.05
+PASSO_COMPRA = 0.02
 
 def main():
-    print(">>> ROBÔ GRID V9 (FORÇA BRUTA AUTH) <<<")
+    print(">>> ROBÔ V10: O EXTERMINADOR DE CHAVES <<<")
     
     key = os.getenv("PRIVATE_KEY")
     if not key:
@@ -22,38 +21,44 @@ def main():
         sys.exit(1)
 
     try:
-        # Conecta na rede Polygon
+        # Inicializa conexão
         client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137)
-        
-        # TENTATIVA DE LOGIN MULTIPLO
-        print(">>> Tentando autenticação...")
-        auth_sucesso = False
-        
-        # 1. Tenta derivar (se a chave já existir)
-        try:
-            client.derive_api_key()
-            print(">>> ✅ Chave recuperada (Derivada)!")
-            auth_sucesso = True
-        except:
-            # 2. Se falhar, tenta criar uma nova
-            try:
-                client.create_api_key()
-                print(">>> ✅ Chave nova criada!")
-                auth_sucesso = True
-            except Exception as e:
-                print(f">>> Aviso: Erro ao criar/derivar: {e}")
+        print(">>> Conectado. Tentando resolver o conflito de API...")
 
-        # Verifica se funcionou
-        if not auth_sucesso:
-            print("❌ FALHA CRÍTICA: O robô não conseguiu permissão da API.")
-            print("DICA: Verifique se sua conta tem saldo em MATIC para taxas de rede.")
-            sys.exit(1)
+        # --- ESTRATÉGIA DE LIMPEZA ---
+        try:
+            # Tenta criar a chave normalmente
+            client.create_api_key()
+            print(">>> ✅ Chave criada de primeira!")
+        except Exception as e:
+            msg = str(e).lower()
+            if "exists" in msg or "already" in msg or "400" in msg:
+                print(">>> ⚠️ Chave antiga detectada. Iniciando remoção forçada...")
+                try:
+                    # Tenta DELETAR a chave antiga usando a assinatura da carteira
+                    client.delete_api_key()
+                    print(">>> 🗑️ Chave antiga DELETADA com sucesso!")
+                    time.sleep(2)
+                    
+                    # Tenta criar de novo agora que está limpo
+                    client.create_api_key()
+                    print(">>> ✅ Nova Chave criada com sucesso!")
+                except Exception as e2:
+                    print(f">>> ❌ Falha ao deletar chave: {e2}")
+                    # Tenta derivar como última esperança
+                    try:
+                        client.derive_api_key()
+                        print(">>> ✅ Chave derivada (recuperada)!")
+                    except:
+                        pass
+            else:
+                print(f">>> Erro estranho na criação: {e}")
 
     except Exception as e:
-        print(f"Erro Conexão Geral: {e}")
-        sys.exit(1)
+        print(f"Erro Geral de Conexão: {e}")
+        # Segue o baile para tentar operar mesmo assim
 
-    # Lista de preços
+    # --- INÍCIO DAS OPERAÇÕES ---
     grid_compras = []
     p = GRID_COMPRA_INICIO
     while p >= GRID_COMPRA_FIM:
@@ -63,6 +68,7 @@ def main():
     while True:
         print("\n--- Ciclo de Operação ---")
         
+        # COMPRA
         for preco in grid_compras:
             try:
                 qtd = round(VALOR_ORDEM_USD / preco, 2)
@@ -74,13 +80,34 @@ def main():
                         token_id=TOKEN_ID
                     )
                 )
-                print(f"✅ SUCESSO! Compra a ${preco}. ID: {resp.get('orderID')}")
+                print(f"✅ SUCESSO! Compra colocada a ${preco}. ID: {resp.get('orderID')}")
             except Exception as e:
                 msg = str(e)
                 if "balance" in msg.lower():
-                     print(f"⚠️ Saldo insuficiente para ${preco}")
+                     print(f"⚠️ Saldo insuficiente para comprar a ${preco}")
+                elif "credentials" in msg.lower():
+                     print("❌ ERRO DE CREDENCIAIS: O reset não funcionou.")
+                     print("SOLUÇÃO FINAL: Vá em https://polymarket.com/settings e procure 'API Keys' para deletar.")
                 else:
-                     print(f"❌ Erro em ${preco}: {msg}")
+                     print(f"❌ Erro ao comprar a ${preco}: {msg}")
+
+        # VENDA
+        for preco_compra in grid_compras:
+            preco_venda = round(preco_compra + LUCRO, 2)
+            try:
+                qtd = round(VALOR_ORDEM_USD / preco_compra, 2)
+                if preco_venda < 1.0:
+                    client.create_and_post_order(
+                        OrderArgs(
+                            price=preco_venda,
+                            size=qtd,
+                            side="SELL",
+                            token_id=TOKEN_ID
+                        )
+                    )
+                    print(f"💰 VENDA colocada a ${preco_venda}")
+            except:
+                pass 
 
         print("Aguardando 30 segundos...")
         time.sleep(30)
