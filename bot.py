@@ -2,19 +2,19 @@ import os
 import time
 import sys
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType
+from py_clob_client.clob_types import OrderArgs
 
 # --- CONFIGURAÇÕES ---
 TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
-VALOR_ORDEM_USD = 1.00
+VALOR_ORDEM_USD = 5.00
 LUCRO = 0.01
 
-GRID_COMPRA_INICIO = 0.40
+GRID_COMPRA_INICIO = 0.50
 GRID_COMPRA_FIM = 0.10
-PASSO_COMPRA = 0.02
+PASSO_COMPRA = 0.05
 
 def main():
-    print(">>> ROBÔ GRID V6 (CORREÇÃO GTC) <<<")
+    print(">>> ROBÔ GRID V7 (FINAL) <<<")
     
     key = os.getenv("PRIVATE_KEY")
     if not key:
@@ -46,27 +46,24 @@ def main():
         for preco in grid_compras:
             try:
                 qtd = round(VALOR_ORDEM_USD / preco, 2)
-                # print(f"Tentando comprar {qtd} a ${preco}...")
                 
                 resp = client.create_and_post_order(
                     OrderArgs(
                         price=preco,
                         size=qtd,
                         side="BUY", 
-                        token_id=TOKEN_ID,
-                        order_type=OrderType.GTC # <--- CORREÇÃO AQUI (Era LIMIT)
+                        token_id=TOKEN_ID
                     )
                 )
                 print(f"✅ SUCESSO! Compra colocada a ${preco}. ID: {resp.get('orderID')}")
             except Exception as e:
-                # Se for erro de saldo, avisa. Se for outro, mostra também.
                 msg = str(e)
                 if "balance" in msg.lower():
-                     print(f"⚠️ Saldo insuficiente para comprar a ${preco} (Precisa de USDC na Polygon)")
+                     print(f"⚠️ Saldo insuficiente para comprar a ${preco}")
                 else:
                      print(f"❌ Erro ao comprar a ${preco}: {msg}")
 
-        # --- VENDA (Para realizar lucro) ---
+        # --- VENDA ---
         for preco_compra in grid_compras:
             preco_venda = round(preco_compra + LUCRO, 2)
             try:
@@ -77,16 +74,16 @@ def main():
                             price=preco_venda,
                             size=qtd,
                             side="SELL",
-                            token_id=TOKEN_ID,
-                            order_type=OrderType.GTC # <--- CORREÇÃO AQUI
+                            token_id=TOKEN_ID
                         )
                     )
                     print(f"💰 VENDA colocada a ${preco_venda}. ID: {resp.get('orderID')}")
             except Exception as e:
-                pass # Ignora erro na venda (provavelmente pq ainda nao comprou)
+                pass 
 
         print("Aguardando 30 segundos...")
         time.sleep(30)
 
 if __name__ == "__main__":
     main()
+    
