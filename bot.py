@@ -13,60 +13,27 @@ GRID_COMPRA_INICIO = 0.40
 GRID_COMPRA_FIM = 0.10
 PASSO_COMPRA = 0.02
 
-def setup_credentials(client):
-    """Função agressiva para conseguir credenciais"""
-    print(">>> 🔐 Tentando autenticar...")
-
-    # TENTATIVA 1: Criar nova (Padrão)
-    try:
-        client.create_api_key()
-        print(">>> ✅ Método 1 (Criar): Sucesso!")
-        return True
-    except Exception as e:
-        print(f">>> Aviso: Método 1 falhou ({e}). Tentando recuperar...")
-
-    # TENTATIVA 2: Derivar (Recuperar a antiga)
-    try:
-        client.derive_api_key()
-        print(">>> ✅ Método 2 (Derivar): Sucesso!")
-        return True
-    except Exception as e:
-        print(f">>> Aviso: Método 2 falhou ({e}). Tentando deletar...")
-
-    # TENTATIVA 3: Deletar a velha e criar nova (Força Bruta)
-    try:
-        client.delete_api_key()
-        time.sleep(2)
-        client.create_api_key()
-        print(">>> ✅ Método 3 (Reset): Sucesso!")
-        return True
-    except Exception as e:
-        print(f">>> ❌ TODOS OS MÉTODOS FALHARAM. Erro final: {e}")
-        return False
-
 def main():
-    print(">>> ROBÔ V11 - O RESGATE <<<")
+    print(">>> ROBÔ V12: O CAMINHO DA VITÓRIA! 🚀 <<<")
     
     key = os.getenv("PRIVATE_KEY")
     if not key:
-        print("ERRO: Sem PRIVATE_KEY.")
+        print("ERRO: Configure a PRIVATE_KEY no Railway.")
         sys.exit(1)
 
     try:
-        # Conecta na Polygon
         client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137)
-        
-        # Roda a função de autenticação
-        if not setup_credentials(client):
-            print(">>> 🛑 O robô não consegue operar nesta carteira.")
-            print(">>> SOLUÇÃO: Crie uma carteira NOVA na MetaMask e use ela.")
-            sys.exit(1)
-            
+        # Tenta recuperar ou criar a chave (como é conta nova, ele vai achar rápido)
+        try:
+            client.derive_api_key()
+        except:
+            client.create_api_key()
+        print(">>> ✅ Conectado e Autenticado!")
     except Exception as e:
-        print(f"Erro Geral: {e}")
+        print(f"Erro na conexão: {e}")
         sys.exit(1)
 
-    # --- INÍCIO DAS OPERAÇÕES ---
+    # Gera lista de preços do grid
     grid_compras = []
     p = GRID_COMPRA_INICIO
     while p >= GRID_COMPRA_FIM:
@@ -74,10 +41,10 @@ def main():
         p -= PASSO_COMPRA
     
     while True:
-        print("\n--- Ciclo de Operação ---")
+        print("\n--- Ciclo de Mercado ---")
         
-        # COMPRA
         for preco in grid_compras:
+            # 1. TENTATIVA DE COMPRA
             try:
                 qtd = round(VALOR_ORDEM_USD / preco, 2)
                 resp = client.create_and_post_order(
@@ -88,33 +55,30 @@ def main():
                         token_id=TOKEN_ID
                     )
                 )
-                print(f"✅ SUCESSO! Compra colocada a ${preco}. ID: {resp.get('orderID')}")
+                print(f"✅ COMPRA enviada: {qtd} cotas a ${preco}. ID: {resp.get('orderID')}")
             except Exception as e:
                 msg = str(e)
                 if "balance" in msg.lower():
-                     print(f"⚠️ Saldo insuficiente para ${preco} (Recarregue USDC)")
-                elif "credentials" in msg.lower():
-                     print("❌ ERRO CREDENCIAIS: Autenticação perdida.")
+                     print(f"⚠️ Saldo insuficiente para comprar a ${preco}")
                 else:
-                     print(f"❌ Erro ao comprar a ${preco}: {msg}")
+                     print(f"❌ Erro na compra (${preco}): {msg}")
 
-        # VENDA
-        for preco_compra in grid_compras:
-            preco_venda = round(preco_compra + LUCRO, 2)
+            # 2. TENTATIVA DE VENDA (Grid Real)
+            preco_venda = round(preco + LUCRO, 2)
             try:
-                qtd = round(VALOR_ORDEM_USD / preco_compra, 2)
                 if preco_venda < 1.0:
-                    client.create_and_post_order(
+                    qtd_v = round(VALOR_ORDEM_USD / preco, 2)
+                    resp_v = client.create_and_post_order(
                         OrderArgs(
                             price=preco_venda,
-                            size=qtd,
+                            size=qtd_v,
                             side="SELL",
                             token_id=TOKEN_ID
                         )
                     )
-                    print(f"💰 VENDA colocada a ${preco_venda}")
+                    print(f"💰 VENDA enviada: {qtd_v} cotas a ${preco_venda}")
             except:
-                pass 
+                pass # Ignora erros de saldo na venda
 
         print("Aguardando 30 segundos...")
         time.sleep(30)
