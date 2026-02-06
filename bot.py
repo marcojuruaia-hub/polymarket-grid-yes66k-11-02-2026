@@ -4,6 +4,7 @@ import sys
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs
 from py_clob_client.order_builder.constants import BUY, SELL
+from eth_account import Account
 
 # --- CONFIGURAÇÕES ---
 TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
@@ -15,68 +16,69 @@ GRID_COMPRA_FIM = 0.30
 PASSO_COMPRA = 0.05
 
 def main():
-    print(">>> 🚀 ROBÔ V20: LOCALIZADOR DE COFRE <<<")
+    print(">>> 🚀 ROBÔ V21: FORÇANDO ONBOARDING <<<")
     
     key = os.getenv("PRIVATE_KEY")
     if not key:
         print("❌ ERRO: PRIVATE_KEY não configurada.")
         sys.exit(1)
 
+    # Verifica qual endereço estamos usando
     try:
-        # Inicializa o cliente (Chain 137 = Polygon)
+        acct = Account.from_key(key)
+        print(f">>> 🏠 Endereço da Carteira: {acct.address}")
+    except:
+        pass
+
+    try:
+        # Inicializa o cliente
         client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137, signature_type=0)
         
-        print(">>> 🔐 Autenticando...")
+        # 1. TENTATIVA DE ONBOARDING (A "Chave" que falta)
+        print(">>> 📑 Tentando Onboarding oficial...")
+        try:
+            client.onboard_user()
+            print(">>> ✅ Onboarding concluído!")
+        except Exception as e:
+            print(f">>> ⚠️ Onboarding já feito ou erro: {e}")
+
+        # 2. AUTENTICAÇÃO
+        print(">>> 🔐 Gerando credenciais de API...")
         creds = client.create_or_derive_api_creds()
         client.set_api_creds(creds)
         
-        # --- BUSCA FORÇADA DO PROXY ---
-        print(">>> 🕵️ Localizando endereço do Proxy (Cofre)...")
-        proxy_address = None
-        
-        try:
-            proxy_address = client.get_proxy_address()
-            if proxy_address:
-                print(f">>> ✅ COFRE LOCALIZADO: {proxy_address}")
-            else:
-                print(">>> ⚠️ Proxy retornou vazio. Tentando inicializar...")
-        except:
-            print(">>> ⚠️ Erro ao buscar Proxy. Sua conta pode precisar de uma ação manual no site.")
+        # 3. BUSCA DO PROXY
+        proxy_address = client.get_proxy_address()
+        if proxy_address:
+            print(f">>> ✅ COFRE LOCALIZADO: {proxy_address}")
+        else:
+            print(">>> ❌ Proxy continua None. Tentando prosseguir...")
 
     except Exception as e:
-        print(f"❌ Erro na conexão inicial: {e}")
+        print(f"❌ Erro fatal na conexão: {e}")
         sys.exit(1)
 
     grid_compras = [0.50, 0.45, 0.40, 0.35, 0.30]
 
     while True:
-        print(f"\n--- ⏳ Ciclo de Operação (Proxy: {proxy_address}) ---")
+        print(f"\n--- ⏳ Ciclo de Operação (Cofre: {proxy_address}) ---")
         
         for preco in grid_compras:
             try:
-                # O valor mínimo na API costuma ser mais rigoroso que no site
                 qtd = round(VALOR_ORDEM_USD / preco, 2)
-                
                 resp = client.create_and_post_order(
-                    OrderArgs(
-                        price=preco,
-                        size=qtd,
-                        side=BUY, 
-                        token_id=TOKEN_ID
-                    )
+                    OrderArgs(price=preco, size=qtd, side=BUY, token_id=TOKEN_ID)
                 )
                 
-                if resp.get("success"):
+                if resp.get("success") or resp.get("orderID"):
                     print(f"✅ SUCESSO! Compra a ${preco} enviada.")
                 else:
-                    print(f"❌ Resposta da API: {resp}")
+                    print(f"❌ Erro na ordem: {resp}")
                     
             except Exception as e:
                 msg = str(e).lower()
                 if "balance" in msg:
-                    print(f"⚠️ Saldo insuficiente para ${preco}. Verifique se o depósito caiu no site.")
-                elif "allowance" in msg:
-                    print(f"⚠️ Erro de permissão: USDC não aprovado.")
+                    print(f"⚠️ Saldo ainda não reconhecido para ${preco}.")
                 else:
                     print(f"❌ Erro em ${preco}: {e}")
 
