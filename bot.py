@@ -91,8 +91,8 @@ def main():
         except Exception as e:
             print(f"⚠️ Erro no ciclo: {e}")
 
-        print("\n--- 😴 Aguardando 120s ---")
-        time.sleep(120)
+        print("\n--- 😴 Aguardando 30s ---")
+        time.sleep(30)
 
 if __name__ == "__main__":
     main()
