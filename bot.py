@@ -12,12 +12,10 @@ from py_clob_client.order_builder.constants import BUY, SELL
 # ==========================================================
 BTC_TOKEN_ID = "35318893558430035110899642976572154099643885812628890621430761251325731975007" 
 
-# Grid solicitado: 0.37 até 0.30
-BTC_GRID = [0.36, 0.36, 0.35, 0.34, 0.33, 0.32, 0.31, 0.30]
+BTC_GRID = [0.33, 0.32, 0.31, 0.30, 0.29, 0.28]
 LULA_GRID = [round(x * 0.01, 2) for x in range(52, 39, -1)]
-# ==========================================================
-
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
+# ==========================================================
 
 def extrair_id_limpo(dado):
     if not dado: return None
@@ -40,7 +38,7 @@ def buscar_id_lula_v34():
     return None
 
 def main():
-    print(">>> 🚀 ROBÔ V34.4: CORREÇÃO DE VENDAS ATIVADA <<<")
+    print(">>> 🚀 ROBÔ V34.5: CORREÇÃO DE LOGICA (COMPRA != VENDA) <<<")
     key = os.getenv("PRIVATE_KEY")
     client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137, signature_type=2, funder=PROXY_ADDRESS)
     client.set_api_creds(client.create_or_derive_api_creds())
@@ -48,43 +46,48 @@ def main():
     while True:
         try:
             lula_id = buscar_id_lula_v34()
-            ordens = client.get_orders(OpenOrderParams())
+            todas_ordens = client.get_orders(OpenOrderParams())
             
-            # --- BITCOIN (COMPRA E VENDA) ---
+            # --- BITCOIN ---
             print("\n--- [BITCOIN] ---")
-            ativos_btc = [round(float(o.get('price')), 2) for o in ordens if o.get('asset_id') == BTC_TOKEN_ID]
+            # SEPARAÇÃO CRÍTICA: Filtra por Ativo E por Lado (Buy/Sell)
+            compras_btc = [round(float(o.get('price')), 2) for o in todas_ordens if o.get('asset_id') == BTC_TOKEN_ID and o.get('side') == BUY]
+            vendas_btc  = [round(float(o.get('price')), 2) for o in todas_ordens if o.get('asset_id') == BTC_TOKEN_ID and o.get('side') == SELL]
             
             for p in BTC_GRID:
-                # 1. Tenta colocar a COMPRA
-                if p not in ativos_btc:
+                # 1. COMPRA: Só coloca se não existir uma COMPRA nesse preço
+                if p not in compras_btc:
                     try:
                         client.create_and_post_order(OrderArgs(price=p, size=calcular_qtd(p), side=BUY, token_id=BTC_TOKEN_ID))
-                        print(f"✅ BTC: Compra a ${p}")
+                        print(f"✅ BTC: Ordem de COMPRA a ${p}")
                     except: pass
                 
-                # 2. Tenta colocar a VENDA (sempre +0.01 do preço de compra)
+                # 2. VENDA: Só coloca se não existir uma VENDA nesse preço (Lucro de 0.01)
                 preco_v = round(p + 0.01, 2)
-                if preco_v not in ativos_btc:
+                if preco_v not in vendas_btc:
                     try:
                         client.create_and_post_order(OrderArgs(price=preco_v, size=calcular_qtd(p), side=SELL, token_id=BTC_TOKEN_ID))
-                        print(f"💰 BTC: Venda a ${preco_v}")
+                        print(f"💰 BTC: Ordem de VENDA a ${preco_v}")
                     except: pass
 
-            # --- LULA (COMPRA E VENDA) ---
+            # --- LULA ---
             if lula_id:
                 print(f"--- [LULA] ---")
-                ativos_lula = [round(float(o.get('price')), 2) for o in ordens if o.get('asset_id') == lula_id]
+                compras_lula = [round(float(o.get('price')), 2) for o in todas_ordens if o.get('asset_id') == lula_id and o.get('side') == BUY]
+                vendas_lula  = [round(float(o.get('price')), 2) for o in todas_ordens if o.get('asset_id') == lula_id and o.get('side') == SELL]
+                
                 for p in LULA_GRID:
-                    if p not in ativos_lula:
+                    if p not in compras_lula:
                         try:
                             client.create_and_post_order(OrderArgs(price=p, size=calcular_qtd(p), side=BUY, token_id=lula_id))
-                            print(f"✅ LULA: Compra a ${p}")
+                            print(f"✅ LULA: COMPRA a ${p}")
                         except: pass
                     
-                    preco_v_lula = round(p + 0.01, 2)
-                    if preco_v_lula not in ativos_lula:
+                    pv_lula = round(p + 0.01, 2)
+                    if pv_lula not in vendas_lula:
                         try:
-                            client.create_and_post_order(OrderArgs(price=preco_v_lula, size=calcular_qtd(p), side=SELL, token_id=lula_id))
+                            client.create_and_post_order(OrderArgs(price=pv_lula, size=calcular_qtd(p), side=SELL, token_id=lula_id))
+                            print(f"💰 LULA: VENDA a ${pv_lula}")
                         except: pass
         
         except Exception as e:
