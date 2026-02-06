@@ -8,14 +8,14 @@ from py_clob_client.clob_types import OrderArgs, OrderType
 # O ID Gigante que descobrimos nos logs (YES - Bitcoin > 66k)
 TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
 
-VALOR_ORDEM_USD = 5.00  # Valor da aposta
+VALOR_ORDEM_USD = 1.00  # Valor da aposta
 LUCRO = 0.01            # Lucro por ordem
 
 # Grid de Compra (Do jeito que você pediu)
 # Começa comprando a 0.50, 0.45, 0.40... até 0.10
-GRID_COMPRA_INICIO = 0.50
+GRID_COMPRA_INICIO = 0.40
 GRID_COMPRA_FIM = 0.10
-PASSO_COMPRA = 0.05
+PASSO_COMPRA = 0.02
 
 def main():
     print(">>> ROBÔ GRID DE OPERAÇÃO - START <<<")
