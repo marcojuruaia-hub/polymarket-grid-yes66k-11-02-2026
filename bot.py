@@ -35,16 +35,11 @@ def buscar_id_lula():
     return None
 
 def exibir_painel(client, ordens, lula_id):
-    """Imprime um resumo do estado atual da banca"""
     try:
-        # Pega o saldo de USDC.e no Cofre
         bal_resp = client.get_balance_allowance(BalanceAllowanceParams(asset_id=USDC_E))
         saldo = bal_resp.get("balance", "0.00")
-        
-        # Conta ordens de cada mercado
         btc_ordens = [o for o in ordens if o.get('asset_id') == BTC_TOKEN_ID]
         lula_ordens = [o for o in ordens if o.get('asset_id') == lula_id] if lula_id else []
-        
         print("\n" + "═"*40)
         print(f"📊 PAINEL DE CONTROLE - {time.strftime('%H:%M:%S')}")
         print(f"💰 SALDO NO COFRE: ${float(saldo):.2f} USDC")
@@ -58,7 +53,7 @@ def calcular_qtd(preco):
     return 5.0 if preco > 0.20 else round(1.0 / preco, 2)
 
 def main():
-    print(">>> 🚀 ROBÔ V35: MODO ANALÍTICO ATIVADO <<<")
+    print(">>> 🚀 ROBÔ V35.1: MODO ANALÍTICO CORRIGIDO <<<")
     key = os.getenv("PRIVATE_KEY")
     client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137, signature_type=2, funder=PROXY_ADDRESS)
     client.set_api_creds(client.create_or_derive_api_creds())
@@ -67,28 +62,38 @@ def main():
         try:
             lula_id = buscar_id_lula()
             ordens = client.get_orders(OpenOrderParams())
-            
-            # Exibe o Painel Financeiro
             exibir_painel(client, ordens, lula_id)
             
-            # --- LOOP BITCOIN ---
+            # --- BITCOIN ---
             ativos_btc = [round(float(o.get('price')), 2) for o in ordens if o.get('asset_id') == BTC_TOKEN_ID]
             for p in BTC_GRID:
                 if p not in ativos_btc:
                     try:
                         client.create_and_post_order(OrderArgs(price=p, size=calcular_qtd(p), side=BUY, token_id=BTC_TOKEN_ID))
+                        print(f"✅ BTC: Compra a ${p}")
                     except: pass
 
-            # --- LOOP LULA ---
+            # --- LULA ---
             if lula_id:
                 ativos_lula = [round(float(o.get('price')), 2) for o in ordens if o.get('asset_id') == lula_id]
                 for p in LULA_GRID:
                     if p not in ativos_lula:
                         try:
-                            client.create_and_post_order(OrderArgs(price=p, size=calcular_qtd(p), side=BUY, token_id=lula_id))
+                            qtd_lula = calcular_qtd(p)
+                            client.create_and_post_order(OrderArgs(price=p, size=qtd_lula, side=BUY, token_id=lula_id))
+                            print(f"✅ LULA: Compra a ${p}")
                         except: pass
                     
                     preco_v = round(p + 0.01, 2)
                     if preco_v not in ativos_lula:
                         try:
-                            client.create_and_post_order(OrderArgs(price=preco_
+                            qtd_venda = calcular_qtd(p)
+                            client.create_and_post_order(OrderArgs(price=preco_v, size=qtd_venda, side=SELL, token_id=lula_id))
+                        except: pass
+        except Exception as e:
+            print(f"⚠️ Erro no ciclo: {e}")
+
+        time.sleep(120)
+
+if __name__ == "__main__":
+    main()
