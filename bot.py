@@ -8,11 +8,11 @@ from py_clob_client.order_builder.constants import SELL
 # --- CONFIGURAÇÕES ---
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
 SHARES_POR_ORDEM = 5
-INTERVALO_SEGUNDOS = 10
+INTERVALO_SEGUNDOS = 3
 
 # Grid de vendas de 0.40 até 0.20 (do maior para o menor)
 GRID_VENDAS = [0.40, 0.39, 0.38, 0.37, 0.36, 0.35, 0.34, 0.33, 0.32, 0.31, 
-               0.30, 0.29, 0.28, 0.27, 0.26, 0.25, 0.24, 0.23, 0.22, 0.21, 0.20]
+               0.30, 0.29, 0.28, 0.27, 0.26, 0.25, 0.24, 0.23, 0.22, 0.21, 0.20, 0.19, 0.18, 0.17]
 
 # ✅ ID CORRETO DO MERCADO (fornecido por você)
 TOKEN_ID = "35044658427406151529832523927508358523245644855262292900678758836293628696933"
