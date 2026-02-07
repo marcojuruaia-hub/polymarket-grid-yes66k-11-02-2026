@@ -8,39 +8,14 @@ from py_clob_client.order_builder.constants import SELL
 # --- CONFIGURAÇÕES ---
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
 SHARES_POR_ORDEM = 5
-INTERVALO_SEGUNDOS = 10  # ✅ ALTERADO: 10 segundos
+INTERVALO_SEGUNDOS = 10
 
-# ✅ ALTERADO: Grid de 0.40 até 0.20 (do maior para o menor)
+# Grid de vendas de 0.40 até 0.20 (do maior para o menor)
 GRID_VENDAS = [0.40, 0.39, 0.38, 0.37, 0.36, 0.35, 0.34, 0.33, 0.32, 0.31, 
                0.30, 0.29, 0.28, 0.27, 0.26, 0.25, 0.24, 0.23, 0.22, 0.21, 0.20]
 
-def buscar_id_bitcoin_up_down():
-    """Busca automaticamente o ID do mercado 'Bitcoin Up or Down - February 7, 6AM ET'"""
-    try:
-        print("🔍 Buscando ID do mercado 'Bitcoin Up or Down'...")
-        
-        slug = "bitcoin-up-or-down-february-7-6am-et"
-        url = f"https://gamma-api.polymarket.com/events?slug={slug}"
-        
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        if data and len(data) > 0:
-            for event in data:
-                for market in event.get("markets", []):
-                    if "Bitcoin Up or Down" in market.get("question", ""):
-                        token_ids = market.get("clobTokenIds", [])
-                        if token_ids and len(token_ids) > 0:
-                            token_id = str(token_ids[0])
-                            print(f"✅ ID encontrado: {token_id[:15]}...")
-                            return token_id
-        
-        print("❌ Mercado não encontrado na API")
-        return None
-        
-    except Exception as e:
-        print(f"❌ Erro ao buscar ID: {e}")
-        return None
+# ✅ ID CORRETO DO MERCADO (fornecido por você)
+TOKEN_ID = "35044658427406151529832523927508358523245644855262292900678758836293628696933"
 
 def obter_ordens_ativas(client):
     """Obtém todas as ordens ativas"""
@@ -51,18 +26,11 @@ def obter_ordens_ativas(client):
         return []
 
 def main():
-    print(">>> 🤖 ROBÔ DE VENDAS BITCOIN UP/DOWN - MODO RÁPIDO <<<")
+    print(">>> 🤖 ROBÔ DE VENDAS BITCOIN UP/DOWN <<<")
     print(f">>> ⏱️ Intervalo: {INTERVALO_SEGUNDOS} segundos")
     print(f">>> 🎯 Faixa de preços: ${GRID_VENDAS[0]:.2f} até ${GRID_VENDAS[-1]:.2f}")
-    print(">>> 📊 Quantidade: 5 shares por ordem")
-    
-    # Busca o ID do mercado
-    TOKEN_ID = buscar_id_bitcoin_up_down()
-    if not TOKEN_ID:
-        print("❌ Não foi possível encontrar o ID do mercado.")
-        return
-    
-    print(f"🎯 Usando Token ID: {TOKEN_ID[:15]}...")
+    print(f">>> 📊 Quantidade: {SHARES_POR_ORDEM} shares por ordem")
+    print(f">>> 🔑 Token ID: {TOKEN_ID[:15]}...")
     
     # Configuração do cliente
     key = os.getenv("PRIVATE_KEY")
@@ -145,14 +113,17 @@ def main():
                             print(f"⏭️ Ordem já existe a ${preco:.2f}")
                             ordens_criadas.append(preco)
                         else:
-                            print(f"⚠️ Erro desconhecido: {e}")
+                            print(f"⚠️ Erro: {e}")
             
             # Mostrar resumo
             print(f"\n📋 RESUMO:")
-            print(f"   Preços com ordem: {sorted(ordens_criadas, reverse=True)}")
+            if ordens_criadas:
+                print(f"   Preços com ordem: {sorted(ordens_criadas, reverse=True)}")
             print(f"   Total de ordens criadas: {len(ordens_criadas)}")
             
-            if not ordem_criada_neste_ciclo:
+            if not ordem_criada_neste_ciclo and len(ordens_criadas) == 0:
+                print(f"   ⚠️ Nenhuma ordem criada - verifique saldo ou conexão")
+            elif not ordem_criada_neste_ciclo:
                 print(f"   ✅ Todas ordens possíveis já foram criadas")
             
         except Exception as e:
