@@ -23,7 +23,7 @@ CONFIG = {
     
     # 🔽 CONFIGURAÇÕES PADRÃO 🔽
     "SHARES_POR_ORDEM": 5,     # Quantidade por ordem
-    "INTERVALO_TEMPO": 10,     # Tempo entre ciclos (segundos)
+    "INTERVALO_TEMPO": 120,     # Tempo entre ciclos (segundos)
 }
 # ============================================================================
 
