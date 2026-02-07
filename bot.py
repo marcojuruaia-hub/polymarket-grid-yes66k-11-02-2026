@@ -1,48 +1,17 @@
 import os
 import time
-import requests
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OpenOrderParams
 from py_clob_client.order_builder.constants import SELL
 
 # --- CONFIGURAÇÕES ---
+TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
 SHARES_POR_ORDEM = 5
-INTERVALO_SEGUNDOS = 10
-GRID_VENDAS = [0.83, 0.82, 0.81, 0.80, 0.79, 0.78, 0.76, 0.74, 0.72, 0.70, 0.65, 0.60, 0.55, 0.50, 0.40]
+INTERVALO_SEGUNDOS = 10  # REDUZIDO PARA 10 SEGUNDOS
 
-# --- FUNÇÃO NOVA (não atrapalha o que já funciona) ---
-def buscar_id_bitcoin_up_down():
-    """Busca automaticamente o ID do mercado 'Bitcoin Up or Down - February 7, 6AM ET'"""
-    try:
-        print("🔍 Buscando ID do mercado 'Bitcoin Up or Down'...")
-        
-        # O 'slug' vem da URL: bitcoin-up-or-down-february-7-6am-et
-        slug = "bitcoin-up-or-down-february-7-6am-et"
-        url = f"https://gamma-api.polymarket.com/events?slug={slug}"
-        
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        if data and len(data) > 0:
-            # Procura pelo mercado correto
-            for event in data:
-                for market in event.get("markets", []):
-                    if "Bitcoin Up or Down" in market.get("question", ""):
-                        # Pega os IDs dos tokens (UP e DOWN)
-                        token_ids = market.get("clobTokenIds", [])
-                        if token_ids and len(token_ids) > 0:
-                            # Assume que o primeiro é o token "YES" (UP)
-                            token_id = str(token_ids[0])
-                            print(f"✅ ID encontrado: {token_id[:15]}...")
-                            return token_id
-        
-        print("❌ Mercado não encontrado na API")
-        return None
-        
-    except Exception as e:
-        print(f"❌ Erro ao buscar ID: {e}")
-        return None
+# Grid de vendas (da mais alta para a mais baixa)
+GRID_VENDAS = [0.80, 0.79, 0.78, 0.77, 0.76, 0.75, 0.74, 0.73, 0.72, 0.71, 0.70]
 
 def obter_ordens_ativas(client):
     """Obtém todas as ordens ativas"""
@@ -53,115 +22,18 @@ def obter_ordens_ativas(client):
         return []
 
 def main():
-    print(">>> 🤖 ROBÔ DE VENDAS BITCOIN UP/DOWN - MODO RÁPIDO <<<")
+    print(">>> 🤖 ROBÔ DE VENDAS BITCOIN - MODO RÁPIDO <<<")
     print(f">>> Intervalo: {INTERVALO_SEGUNDOS} segundos")
     print(">>> Estratégia: Criar ordens até acabar o saldo")
     
-    # 1. Busca o ID do mercado UMA VEZ no início
-    TOKEN_ID = buscar_id_bitcoin_up_down()
-    if not TOKEN_ID:
-        print("❌ Não foi possível encontrar o ID do mercado. Verifique o slug.")
-        return
-    
-    print(f"🎯 Usando Token ID: {TOKEN_ID[:15]}...")
-    
-    # 2. Configuração do cliente (igual antes)
+    # Configuração
     key = os.getenv("PRIVATE_KEY")
     if not key:
         print("❌ ERRO: PRIVATE_KEY não configurada!")
+        print("   Adicione no GitHub Secrets ou variável de ambiente")
         return
     
+    # Inicializa cliente
     try:
         client = ClobClient(
-            "https://clob.polymarket.com/", 
-            key=key, 
-            chain_id=137, 
-            signature_type=2, 
-            funder=PROXY_ADDRESS
-        )
-        client.set_api_creds(client.create_or_derive_api_creds())
-        print("✅ Conectado ao Polymarket")
-    except Exception as e:
-        print(f"❌ Falha na conexão: {e}")
-        return
-    
-    # 3. Loop principal (IGUAL ao que já funcionava)
-    ciclo = 0
-    ordens_criadas = []
-    
-    while True:
-        ciclo += 1
-        print(f"\n{'='*50}")
-        print(f"🔁 CICLO {ciclo} - {time.strftime('%H:%M:%S')}")
-        print(f"{'='*50}")
-        
-        try:
-            # Ver ordens atuais
-            ordens = obter_ordens_ativas(client)
-            ordens_venda = []
-            
-            for ordem in ordens:
-                if (ordem.get('asset_id') == TOKEN_ID and 
-                    ordem.get('status') == 'open' and
-                    ordem.get('side') == 'SELL'):
-                    
-                    preco = round(float(ordem.get('price', 0)), 2)
-                    tamanho = float(ordem.get('size', 0))
-                    ordens_venda.append(preco)
-                    print(f"   ✅ Ordem ativa: {tamanho} shares a ${preco:.2f}")
-            
-            print(f"\n📊 Total de ordens ativas: {len(ordens_venda)}")
-            
-            # Tentar criar próxima ordem na sequência
-            ordem_criada_neste_ciclo = False
-            
-            for preco in GRID_VENDAS:
-                if preco not in ordens_venda and preco not in ordens_criadas:
-                    print(f"\n🔄 Tentando criar ordem a ${preco:.2f}...")
-                    
-                    try:
-                        ordem = OrderArgs(
-                            price=preco,
-                            size=SHARES_POR_ORDEM,
-                            side=SELL,
-                            token_id=TOKEN_ID
-                        )
-                        
-                        client.create_and_post_order(ordem)
-                        ordens_criadas.append(preco)
-                        print(f"✅ SUCESSO! Ordem criada: {SHARES_POR_ORDEM} shares a ${preco:.2f}")
-                        ordem_criada_neste_ciclo = True
-                        break
-                        
-                    except Exception as e:
-                        erro_msg = str(e).lower()
-                        
-                        if "balance" in erro_msg or "insufficient" in erro_msg:
-                            print(f"❌ SEM SALDO para ordem a ${preco:.2f}")
-                            print(f"   ⏹️ Parando criação de novas ordens")
-                            if preco in ordens_criadas:
-                                ordens_criadas.remove(preco)
-                            break
-                        elif "already" in erro_msg or "duplicate" in erro_msg:
-                            print(f"⏭️ Ordem já existe a ${preco:.2f}")
-                            ordens_criadas.append(preco)
-                        else:
-                            print(f"⚠️ Erro desconhecido: {e}")
-            
-            # Mostrar resumo
-            print(f"\n📋 RESUMO:")
-            print(f"   Preços com ordem: {sorted(ordens_criadas, reverse=True)}")
-            print(f"   Total de ordens criadas: {len(ordens_criadas)}")
-            
-            if not ordem_criada_neste_ciclo:
-                print(f"   ✅ Todas ordens possíveis já foram criadas")
-            
-        except Exception as e:
-            print(f"\n⚠️ ERRO GERAL: {e}")
-        
-        # Esperar próximo ciclo
-        print(f"\n⏳ Próximo ciclo em {INTERVALO_SEGUNDOS} segundos...")
-        time.sleep(INTERVALO_SEGUNDOS)
-
-if __name__ == "__main__":
-    main()
+            "https://clob.polymarket.com
