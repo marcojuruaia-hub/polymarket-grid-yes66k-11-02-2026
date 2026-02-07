@@ -8,10 +8,10 @@ from py_clob_client.order_builder.constants import SELL
 TOKEN_ID = "35044658427406151529832523927508358523245644855262292900678758836293628696933"
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
 SHARES_POR_ORDEM = 5
-INTERVALO_SEGUNDOS = 60
+INTERVALO_SEGUNDOS = 10
 
 # Grid de vendas (da mais alta para a mais baixa)
-GRID_VENDAS = [0.83, 0.82, 0.81, 0.80, 0.79, 0.78, 0.76, 0.74, 0.72, 0.70, 0.65, 0.60, 0.55, 0.50, 0.40]
+GRID_VENDAS = [0.30, 0.29, 0.28 0.27, 0.26, 0.25, 0.24, 0.23, 0.22, 0.21, 0.20]
 
 def obter_ordens_ativas(client):
     """Obtém todas as ordens ativas"""
