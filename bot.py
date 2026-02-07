@@ -8,7 +8,7 @@ from py_clob_client.order_builder.constants import SELL
 # --- CONFIGURAÇÕES ---
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
 SHARES_POR_ORDEM = 5
-INTERVALO_SEGUNDOS = 30
+INTERVALO_SEGUNDOS = 5
 
 # Grid de vendas de 0.40 até 0.20 (do maior para o menor)
 GRID_VENDAS = [0.40, 0.39, 0.38, 0.37, 0.36, 0.35, 0.34, 0.33, 0.32, 0.31, 
