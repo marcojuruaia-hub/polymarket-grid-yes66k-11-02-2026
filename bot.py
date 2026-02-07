@@ -1,76 +1,130 @@
-import sys
-# Destrava o log para aparecer na hora
-sys.stdout.reconfigure(line_buffering=True)
-
 import os
 import time
-import requests
-import json
-import re
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import OrderArgs, OpenOrderParams
-from py_clob_client.order_builder.constants import BUY, SELL
+from py_clob_client.order_builder.constants import SELL
 
-# ==========================================================
-# 🎯 MUDANÇA MANUAL
-# ==========================================================
-BTC_TOKEN_ID = "COLE_O_ID_AQUI" 
-# ==========================================================
-
+# --- CONFIGURAÇÕES ---
+TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
+SHARES_POR_ORDEM = 5
+INTERVALO_SEGUNDOS = 60
 
-def extrair_id_limpo(dado):
-    if not dado: return None
-    if isinstance(dado, list) and len(dado) > 0: dado = dado[0]
-    match = re.search(r'\d{30,}', str(dado))
-    return match.group(0) if match else None
+# Grid de vendas (da mais alta para a mais baixa)
+GRID_VENDAS = [0.83, 0.82, 0.81, 0.80, 0.79, 0.78, 0.76, 0.74, 0.72, 0.70, 0.65, 0.60, 0.55, 0.50, 0.40]
 
-def scanner_bruto_definitivo():
-    print("\n" + "═"*60)
-    print("🔎 LISTA COMPLETA: BITCOIN UP/DOWN FEB 7")
-    print("═"*60)
+def obter_ordens_ativas(client):
+    """Obtém todas as ordens ativas"""
     try:
-        # Busca o evento pelo slug exato que você mandou
-        slug = "bitcoin-up-or-down-on-february-7"
-        url = f"https://gamma-api.polymarket.com/events?slug={slug}"
-        resp = requests.get(url).json()
-        
-        encontrou = False
-        for event in resp:
-            print(f"📂 Evento: {event.get('title')}")
-            for m in event.get("markets", []):
-                q = m.get("question", "")
-                ids = m.get("clobTokenIds")
-                if ids:
-                    clean_id = extrair_id_limpo(ids)
-                    print(f"📌 Pergunta: {q}")
-                    print(f"👉 ID: {clean_id}")
-                    print("-" * 20)
-                    encontrou = True
-        
-        if not encontrou:
-            print("⚠️ A API retornou vazio. Verifique se o mercado já não encerrou.")
-
+        return client.get_orders(OpenOrderParams())
     except Exception as e:
-        print(f"⚠️ Erro no scanner: {e}")
-    print("═"*60 + "\n")
+        print(f"❌ Erro ao buscar ordens: {e}")
+        return []
 
 def main():
-    print(">>> 🚀 ROBÔ V35.3: MODO SCANNER BRUTO <<<")
+    print(">>> 🤖 ROBÔ DE VENDAS BITCOIN - MODO SIMPLES <<<")
+    print(">>> Estratégia: Criar ordens até acabar o saldo")
+    
+    # Configuração
     key = os.getenv("PRIVATE_KEY")
-    client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137, signature_type=2, funder=PROXY_ADDRESS)
-    client.set_api_creds(client.create_or_derive_api_creds())
-
-    # Roda o scanner uma vez
-    scanner_bruto_definitivo()
-
+    if not key:
+        print("❌ ERRO: PRIVATE_KEY não configurada!")
+        print("   Adicione no GitHub Secrets ou variável de ambiente")
+        return
+    
+    # Inicializa cliente
+    try:
+        client = ClobClient(
+            "https://clob.polymarket.com/", 
+            key=key, 
+            chain_id=137, 
+            signature_type=2, 
+            funder=PROXY_ADDRESS
+        )
+        client.set_api_creds(client.create_or_derive_api_creds())
+        print("✅ Conectado ao Polymarket")
+    except Exception as e:
+        print(f"❌ Falha na conexão: {e}")
+        return
+    
+    ciclo = 0
+    ordens_criadas = []
+    
     while True:
-        if BTC_TOKEN_ID == "COLE_O_ID_AQUI":
-            print("⚠️  Aguardando você copiar o ID do log acima...")
-        else:
-            print(f">>> Operando no ID: {BTC_TOKEN_ID[:15]}...")
+        ciclo += 1
+        print(f"\n{'='*50}")
+        print(f"🔁 CICLO {ciclo} - {time.strftime('%H:%M:%S')}")
+        print(f"{'='*50}")
+        
+        try:
+            # 1. Ver ordens atuais
+            ordens = obter_ordens_ativas(client)
+            ordens_venda = []
             
-        time.sleep(30)
+            for ordem in ordens:
+                if (ordem.get('asset_id') == TOKEN_ID and 
+                    ordem.get('status') == 'open' and
+                    ordem.get('side') == 'SELL'):
+                    
+                    preco = round(float(ordem.get('price', 0)), 2)
+                    tamanho = float(ordem.get('size', 0))
+                    ordens_venda.append(preco)
+                    print(f"   ✅ Ordem ativa: {tamanho} shares a ${preco:.2f}")
+            
+            print(f"\n📊 Total de ordens ativas: {len(ordens_venda)}")
+            
+            # 2. Tentar criar próxima ordem na sequência
+            ordem_criada_neste_ciclo = False
+            
+            for preco in GRID_VENDAS:
+                if preco not in ordens_venda and preco not in ordens_criadas:
+                    print(f"\n🔄 Tentando criar ordem a ${preco:.2f}...")
+                    
+                    try:
+                        # Cria ordem
+                        ordem = OrderArgs(
+                            price=preco,
+                            size=SHARES_POR_ORDEM,
+                            side=SELL,
+                            token_id=TOKEN_ID
+                        )
+                        
+                        client.create_and_post_order(ordem)
+                        ordens_criadas.append(preco)
+                        print(f"✅ SUCESSO! Ordem criada: {SHARES_POR_ORDEM} shares a ${preco:.2f}")
+                        ordem_criada_neste_ciclo = True
+                        break  # Para após criar uma ordem
+                        
+                    except Exception as e:
+                        erro_msg = str(e).lower()
+                        
+                        if "balance" in erro_msg or "insufficient" in erro_msg:
+                            print(f"❌ SEM SALDO para ordem a ${preco:.2f}")
+                            print(f"   ⏹️ Parando criação de novas ordens")
+                            # Remove da lista para não tentar de novo
+                            if preco in ordens_criadas:
+                                ordens_criadas.remove(preco)
+                            break
+                        elif "already" in erro_msg or "duplicate" in erro_msg:
+                            print(f"⏭️ Ordem já existe a ${preco:.2f}")
+                            ordens_criadas.append(preco)
+                        else:
+                            print(f"⚠️ Erro desconhecido: {e}")
+            
+            # 3. Mostrar resumo
+            print(f"\n📋 RESUMO:")
+            print(f"   Preços com ordem: {sorted(ordens_criadas, reverse=True)}")
+            print(f"   Total de ordens criadas: {len(ordens_criadas)}")
+            
+            if not ordem_criada_neste_ciclo:
+                print(f"   ✅ Todas ordens possíveis já foram criadas")
+            
+        except Exception as e:
+            print(f"\n⚠️ ERRO GERAL: {e}")
+        
+        # 4. Esperar próximo ciclo
+        print(f"\n⏳ Próximo ciclo em {INTERVALO_SEGUNDOS} segundos...")
+        time.sleep(INTERVALO_SEGUNDOS)
 
 if __name__ == "__main__":
     main()
