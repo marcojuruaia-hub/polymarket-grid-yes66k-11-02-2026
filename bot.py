@@ -12,16 +12,15 @@ LUCRO = 0.01
 # Grid de compra
 GRID_COMPRA = [0.83, 0.82, 0.81, 0.80, 0.79, 0.78, 0.76, 0.74, 0.72, 0.70, 0.65, 0.60, 0.55, 0.50, 0.40]
 
-def get_ordens_abertas(client):
-    """Busca ordens abertas e filtra por token"""
+def get_ordens_e_posicoes(client):
+    """Busca ordens abertas E posições executadas"""
     try:
-        # Busca TODAS as ordens abertas
         todas_ordens = client.get_orders()
         
         compras_abertas = {}
         vendas_abertas = {}
+        compras_executadas = {}  # Compras que viraram posição
         
-        # Filtra apenas as do nosso token
         for ordem in todas_ordens:
             if ordem.get('asset_id') != TOKEN_ID:
                 continue
@@ -30,20 +29,29 @@ def get_ordens_abertas(client):
             lado = ordem.get('side')
             status = ordem.get('status')
             
-            # Apenas ordens ativas (LIVE)
-            if status != 'LIVE':
-                continue
+            # Ordens ainda abertas (aguardando execução)
+            if status == 'LIVE':
+                if lado == 'BUY':
+                    compras_abertas[preco] = ordem
+                elif lado == 'SELL':
+                    vendas_abertas[preco] = ordem
             
-            if lado == 'BUY':
-                compras_abertas[preco] = ordem
-            elif lado == 'SELL':
-                vendas_abertas[preco] = ordem
+            # Ordens EXECUTADAS (matched/filled)
+            elif status in ['MATCHED', 'FILLED']:
+                if lado == 'BUY':
+                    # Essa compra foi executada! Agora temos posição
+                    size_matched = float(ordem.get('size_matched', ordem.get('original_size', 0)))
+                    if size_matched > 0:
+                        compras_executadas[preco] = {
+                            'quantidade': size_matched,
+                            'ordem_id': ordem.get('id')
+                        }
         
-        return compras_abertas, vendas_abertas
+        return compras_abertas, vendas_abertas, compras_executadas
         
     except Exception as e:
         print(f"⚠️ Erro ao buscar ordens: {e}")
-        return {}, {}
+        return {}, {}, {}
 
 def calcular_quantidade_minima(preco):
     """Calcula quantidade mínima de shares"""
@@ -68,17 +76,18 @@ def main():
     print(f">>> ✅ Cofre: {PROXY_ADDRESS}")
     print(f">>> 💰 Lucro por operação: ${LUCRO}\n")
     
-    # Rastrear ordens que já criamos
+    # Rastrear ordens já criadas
     compras_ja_criadas = set()
-    vendas_ja_criadas = set()
+    vendas_processadas = set()  # IDs de compras que já viraram venda
     
     while True:
         print("\n" + "="*70)
         print("--- ⏳ VERIFICANDO ORDENS ---")
         
-        compras_abertas, vendas_abertas = get_ordens_abertas(client)
+        compras_abertas, vendas_abertas, compras_executadas = get_ordens_e_posicoes(client)
         
-        print(f"📊 Compras abertas: {sorted(compras_abertas.keys())}")
+        print(f"📊 Compras ABERTAS (aguardando): {sorted(compras_abertas.keys())}")
+        print(f"📊 Compras EXECUTADAS (posição): {sorted(compras_executadas.keys())}")
         print(f"📊 Vendas abertas: {sorted(vendas_abertas.keys())}")
         
         # ============================================================
@@ -87,9 +96,13 @@ def main():
         print("\n🔵 CRIANDO ORDENS DE COMPRA...")
         
         for preco_compra in GRID_COMPRA:
-            # Já existe ordem aberta nesse preço?
-            if preco_compra in compras_abertas:
-                print(f"  ℹ️ Já existe compra a ${preco_compra:.2f}")
+            # Já existe ordem aberta OU já temos posição nesse preço?
+            if preco_compra in compras_abertas or preco_compra in compras_executadas:
+                if preco_compra in compras_abertas:
+                    print(f"  ℹ️ Ordem de compra aberta a ${preco_compra:.2f}")
+                if preco_compra in compras_executadas:
+                    qtd = compras_executadas[preco_compra]['quantidade']
+                    print(f"  ✅ Posição: {qtd} shares compradas a ${preco_compra:.2f}")
                 compras_ja_criadas.add(preco_compra)
                 continue
             
@@ -110,7 +123,7 @@ def main():
                 )
                 
                 compras_ja_criadas.add(preco_compra)
-                print(f"  ✅ COMPRA: {qtd} shares a ${preco_compra:.2f}")
+                print(f"  ✅ COMPRA criada: {qtd} shares a ${preco_compra:.2f}")
                 
             except Exception as e:
                 erro_str = str(e).lower()
@@ -120,38 +133,41 @@ def main():
                     print(f"  ❌ Erro: {e}")
         
         # ============================================================
-        # PARTE 2: CRIAR VENDAS PARA COMPRAS ABERTAS
+        # PARTE 2: CRIAR VENDAS APENAS PARA POSIÇÕES EXECUTADAS
         # ============================================================
-        print("\n🟢 CRIANDO ORDENS DE VENDA...")
+        print("\n🟢 CRIANDO ORDENS DE VENDA (para posições compradas)...")
         
-        for preco_compra in compras_abertas.keys():
+        if not compras_executadas:
+            print("  ℹ️ Nenhuma posição comprada ainda. Aguardando execução das compras...")
+        
+        for preco_compra, info in compras_executadas.items():
+            ordem_id = info['ordem_id']
+            qtd_comprada = info['quantidade']
             preco_venda = round(preco_compra + LUCRO, 2)
+            
+            # Já processamos essa compra?
+            if ordem_id in vendas_processadas:
+                continue
             
             # Já existe venda nesse preço?
             if preco_venda in vendas_abertas:
                 print(f"  ℹ️ Já existe venda a ${preco_venda:.2f}")
-                vendas_ja_criadas.add(preco_venda)
-                continue
-            
-            # Já tentamos criar antes?
-            if preco_venda in vendas_ja_criadas:
+                vendas_processadas.add(ordem_id)
                 continue
             
             try:
-                qtd = calcular_quantidade_minima(preco_compra)
-                
                 client.create_and_post_order(
                     OrderArgs(
                         price=preco_venda,
-                        size=qtd,
+                        size=qtd_comprada,
                         side=SELL,
                         token_id=TOKEN_ID
                     )
                 )
                 
-                vendas_ja_criadas.add(preco_venda)
-                print(f"  ✅ VENDA: {qtd} shares a ${preco_venda:.2f}")
-                print(f"     → Compra foi a ${preco_compra:.2f}, lucro ${LUCRO:.2f}/share")
+                vendas_processadas.add(ordem_id)
+                print(f"  ✅ VENDA criada: {qtd_comprada} shares a ${preco_venda:.2f}")
+                print(f"     💰 Compra foi a ${preco_compra:.2f} → Lucro ${LUCRO:.2f}/share")
                 
             except Exception as e:
                 erro_str = str(e).lower()
@@ -160,9 +176,8 @@ def main():
                 else:
                     print(f"  ❌ Erro: {e}")
         
-        # Limpar cache de ordens antigas que não existem mais
-        compras_ja_criadas = set(compras_abertas.keys())
-        vendas_ja_criadas = set(vendas_abertas.keys())
+        # Atualizar cache
+        compras_ja_criadas = set(compras_abertas.keys()) | set(compras_executadas.keys())
         
         print("\n" + "="*70)
         print("⏰ Aguardando 60 segundos...\n")
