@@ -1,7 +1,6 @@
 import sys
-# --- COMANDO PARA DESTRAVAR LOGS NO RAILWAY ---
+# Destrava o log para aparecer na hora
 sys.stdout.reconfigure(line_buffering=True)
-# ----------------------------------------------
 
 import os
 import time
@@ -13,7 +12,7 @@ from py_clob_client.clob_types import OrderArgs, OpenOrderParams
 from py_clob_client.order_builder.constants import BUY, SELL
 
 # ==========================================================
-# 🎯 MUDANÇA MANUAL (Cole aqui o ID quando o log mostrar)
+# 🎯 MUDANÇA MANUAL
 # ==========================================================
 BTC_TOKEN_ID = "COLE_O_ID_AQUI" 
 # ==========================================================
@@ -26,60 +25,50 @@ def extrair_id_limpo(dado):
     match = re.search(r'\d{30,}', str(dado))
     return match.group(0) if match else None
 
-def scanner_up_down_730():
-    """Escaneia especificamente o horário das 7:30-7:45"""
+def scanner_bruto_definitivo():
     print("\n" + "═"*60)
-    print("🔎 BUSCANDO ID: BITCOIN 7:30AM - 7:45AM ET (FEB 7)")
+    print("🔎 LISTA COMPLETA: BITCOIN UP/DOWN FEB 7")
     print("═"*60)
     try:
-        # Tenta buscar pelo evento geral do dia 7
-        url = "https://gamma-api.polymarket.com/events?slug=bitcoin-up-or-down-on-february-7"
+        # Busca o evento pelo slug exato que você mandou
+        slug = "bitcoin-up-or-down-on-february-7"
+        url = f"https://gamma-api.polymarket.com/events?slug={slug}"
         resp = requests.get(url).json()
         
         encontrou = False
         for event in resp:
+            print(f"📂 Evento: {event.get('title')}")
             for m in event.get("markets", []):
                 q = m.get("question", "")
-                # Filtra pelo horário específico
-                if "7:30" in q and "7:45" in q:
-                    ids = m.get("clobTokenIds")
-                    if ids:
-                        clean_id = extrair_id_limpo(ids)
-                        print(f"📌 MERCADO ENCONTRADO: {q}")
-                        print(f"👉 ID 'YES' PARA COPIAR: {clean_id}\n")
-                        encontrou = True
+                ids = m.get("clobTokenIds")
+                if ids:
+                    clean_id = extrair_id_limpo(ids)
+                    print(f"📌 Pergunta: {q}")
+                    print(f"👉 ID: {clean_id}")
+                    print("-" * 20)
+                    encontrou = True
         
         if not encontrou:
-            print("⚠️ Não achei esse horário específico na lista geral.")
-            print("Tentando busca ampla por '7:30'...")
-            # Busca alternativa
-            url_alt = "https://gamma-api.polymarket.com/markets?active=true&query=Bitcoin%207:30&limit=20"
-            resp_alt = requests.get(url_alt).json()
-            for m in resp_alt:
-                q = m.get("question", "")
-                if "7:45" in q and "Feb" in q:
-                     print(f"📌 {q}")
-                     print(f"👉 ID 'YES' PARA COPIAR: {extrair_id_limpo(m.get('clobTokenIds'))}\n")
+            print("⚠️ A API retornou vazio. Verifique se o mercado já não encerrou.")
 
     except Exception as e:
         print(f"⚠️ Erro no scanner: {e}")
     print("═"*60 + "\n")
 
 def main():
-    print(">>> 🚀 ROBÔ V35.2: SCANNER DE EMERGÊNCIA (7:30-7:45) <<<")
+    print(">>> 🚀 ROBÔ V35.3: MODO SCANNER BRUTO <<<")
     key = os.getenv("PRIVATE_KEY")
     client = ClobClient("https://clob.polymarket.com/", key=key, chain_id=137, signature_type=2, funder=PROXY_ADDRESS)
     client.set_api_creds(client.create_or_derive_api_creds())
 
-    # Roda o scanner focado no horário
-    scanner_up_down_730()
+    # Roda o scanner uma vez
+    scanner_bruto_definitivo()
 
     while True:
         if BTC_TOKEN_ID == "COLE_O_ID_AQUI":
-            print("⚠️  Aguardando ID... (Copie do log acima)")
+            print("⚠️  Aguardando você copiar o ID do log acima...")
         else:
             print(f">>> Operando no ID: {BTC_TOKEN_ID[:15]}...")
-            # (Sua lógica de operação aqui...)
             
         time.sleep(30)
 
