@@ -1,187 +1,266 @@
 import os
 import time
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs
-from py_clob_client.order_builder.constants import BUY, SELL
+from py_clob_client.clob_types import OrderArgs, OpenOrderParams, CancelOrderParams
+from py_clob_client.order_builder.constants import SELL
 
 # --- CONFIGURAÇÕES ---
 TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581993896843"
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
-LUCRO = 0.01
+SHARES_POR_ORDEM = 5  # Quantidade de shares por ordem de venda
+INTERVALO_SEGUNDOS = 60  # Intervalo entre ciclos
 
-# Grid de compra
-GRID_COMPRA = [0.83, 0.82, 0.81, 0.80, 0.79, 0.78, 0.76, 0.74, 0.72, 0.70, 0.65, 0.60, 0.55, 0.50, 0.40]
+# Grid de vendas (da mais alta para a mais baixa)
+GRID_VENDAS = [0.83, 0.82, 0.81, 0.80, 0.79, 0.78, 0.76, 0.74, 0.72, 0.70, 0.65, 0.60, 0.55, 0.50, 0.40]
 
-def get_ordens_e_posicoes(client):
-    """Busca ordens abertas E posições executadas"""
+def obter_saldo_disponivel(client, token_id):
+    """Obtém o saldo disponível de shares"""
     try:
-        todas_ordens = client.get_orders()
+        balances = client.get_balances()
+        for balance in balances:
+            if balance.get("tokenId") == token_id:
+                saldo = float(balance.get("available", 0))
+                print(f"💰 Saldo disponível: {saldo:.2f} shares")
+                return saldo
         
-        compras_abertas = {}
-        vendas_abertas = {}
-        compras_executadas = {}  # Compras que viraram posição
+        print("⚠️ Nenhum saldo encontrado para este token")
+        return 0
+    except Exception as e:
+        print(f"❌ Erro ao obter saldo: {e}")
+        return 0
+
+def obter_ordens_venda_ativas(client, token_id):
+    """Obtém todas as ordens de venda ativas"""
+    try:
+        todas_ordens = client.get_orders(OpenOrderParams())
+        ordens_venda = []
         
         for ordem in todas_ordens:
-            if ordem.get('asset_id') != TOKEN_ID:
-                continue
-            
-            preco = round(float(ordem.get('price')), 2)
-            lado = ordem.get('side')
-            status = ordem.get('status')
-            
-            # Ordens ainda abertas (aguardando execução)
-            if status == 'LIVE':
-                if lado == 'BUY':
-                    compras_abertas[preco] = ordem
-                elif lado == 'SELL':
-                    vendas_abertas[preco] = ordem
-            
-            # Ordens EXECUTADAS (matched/filled)
-            elif status in ['MATCHED', 'FILLED']:
-                if lado == 'BUY':
-                    # Essa compra foi executada! Agora temos posição
-                    size_matched = float(ordem.get('size_matched', ordem.get('original_size', 0)))
-                    if size_matched > 0:
-                        compras_executadas[preco] = {
-                            'quantidade': size_matched,
-                            'ordem_id': ordem.get('id')
-                        }
+            if (ordem.get('asset_id') == token_id and 
+                ordem.get('status') == 'open' and
+                ordem.get('side') == 'SELL'):
+                
+                ordens_venda.append({
+                    'id': ordem.get('id'),
+                    'price': round(float(ordem.get('price', 0)), 2),
+                    'size': float(ordem.get('size', 0)),
+                    'size_matched': float(ordem.get('size_matched', 0))
+                })
         
-        return compras_abertas, vendas_abertas, compras_executadas
-        
+        print(f"📊 Ordens de venda ativas: {len(ordens_venda)}")
+        return ordens_venda
     except Exception as e:
-        print(f"⚠️ Erro ao buscar ordens: {e}")
-        return {}, {}, {}
+        print(f"❌ Erro ao obter ordens: {e}")
+        return []
 
-def calcular_quantidade_minima(preco):
-    """Calcula quantidade mínima de shares"""
-    if preco > 0.20:
-        return 5.0
-    else:
-        return round(1.0 / preco, 2)
+def calcular_precos_para_venda(saldo_shares):
+    """Calcula em quais preços colocar ordens de venda baseado no saldo"""
+    if saldo_shares < SHARES_POR_ORDEM:
+        print(f"⏭️ Saldo insuficiente: {saldo_shares:.2f} < {SHARES_POR_ORDEM}")
+        return []
+    
+    # Quantas ordens completas podemos criar
+    num_ordens_possiveis = int(saldo_shares // SHARES_POR_ORDEM)
+    
+    # Pega os N preços mais altos da grid
+    precos_selecionados = GRID_VENDAS[:num_ordens_possiveis]
+    
+    return precos_selecionados
+
+def criar_ordem_venda(client, preco, quantidade, token_id, max_tentativas=3):
+    """Tenta criar uma ordem de venda com tratamento de erros"""
+    for tentativa in range(max_tentativas):
+        try:
+            # Verifica se já existe ordem no mesmo preço
+            ordens_ativas = obter_ordens_venda_ativas(client, token_id)
+            for ordem in ordens_ativas:
+                if ordem['price'] == preco and ordem['size_matched'] == 0:
+                    print(f"⏭️ Ordem já existe a ${preco:.2f}")
+                    return False
+            
+            # Cria nova ordem
+            ordem_args = OrderArgs(
+                price=preco,
+                size=quantidade,
+                side=SELL,
+                token_id=token_id
+            )
+            
+            resultado = client.create_and_post_order(ordem_args)
+            print(f"✅ VENDA criada: {quantidade} shares a ${preco:.2f}")
+            return True
+            
+        except Exception as e:
+            erro_msg = str(e).lower()
+            
+            if "balance" in erro_msg or "insufficient" in erro_msg:
+                print(f"❌ Saldo insuficiente para venda a ${preco:.2f}")
+                return False
+            elif "already" in erro_msg or "duplicate" in erro_msg:
+                print(f"⏭️ Ordem duplicada detectada a ${preco:.2f}")
+                return False
+            elif "nonce" in erro_msg:
+                print(f"⚠️ Erro de nonce, tentando novamente... ({tentativa + 1}/{max_tentativas})")
+                time.sleep(1)
+            else:
+                print(f"⚠️ Erro na tentativa {tentativa + 1}: {e}")
+                if tentativa < max_tentativas - 1:
+                    time.sleep(2)
+    
+    print(f"❌ Falha após {max_tentativas} tentativas para venda a ${preco:.2f}")
+    return False
+
+def cancelar_ordens_antigas(client, token_id, precos_desejados):
+    """Cancela ordens que não estão mais nos preços desejados"""
+    try:
+        ordens_ativas = obter_ordens_venda_ativas(client, token_id)
+        
+        for ordem in ordens_ativas:
+            # Cancela se:
+            # 1. O preço não está na lista desejada
+            # 2. A ordem ainda não foi executada (size_matched == 0)
+            if ordem['price'] not in precos_desejados and ordem['size_matched'] == 0:
+                try:
+                    client.cancel_order(CancelOrderParams(id=ordem['id']))
+                    print(f"♻️ Cancelada ordem obsoleta a ${ordem['price']:.2f}")
+                except Exception as e:
+                    print(f"⚠️ Erro ao cancelar ordem: {e}")
+    except Exception as e:
+        print(f"⚠️ Erro ao cancelar ordens antigas: {e}")
+
+def mostrar_resumo(client, token_id):
+    """Mostra um resumo detalhado da situação"""
+    saldo = obter_saldo_disponivel(client, token_id)
+    ordens_venda = obter_ordens_venda_ativas(client, token_id)
+    precos_desejados = calcular_precos_para_venda(saldo)
+    
+    print(f"\n📋 RESUMO DA SITUAÇÃO:")
+    print(f"   Saldo disponível: {saldo:.2f} shares")
+    print(f"   Ordens de venda ativas: {len(ordens_venda)}")
+    print(f"   Ordens possíveis: {len(precos_desejados)}")
+    
+    if ordens_venda:
+        print(f"\n   📊 ORDENS ATIVAS:")
+        # Ordena do maior para o menor preço
+        for ordem in sorted(ordens_venda, key=lambda x: x['price'], reverse=True):
+            status = "⏳" if ordem['size_matched'] == 0 else "✅"
+            print(f"     {status} ${ordem['price']:.2f}: {ordem['size']:.2f} shares")
+    
+    if precos_desejados:
+        print(f"\n   🎯 PREÇOS DESEJADOS:")
+        for preco in precos_desejados:
+            ja_existe = any(o['price'] == preco for o in ordens_venda)
+            status = "✅" if ja_existe else "⏳"
+            print(f"     {status} ${preco:.2f}")
+    
+    # Calcula totais
+    total_em_ordens = sum(o['size'] - o['size_matched'] for o in ordens_venda)
+    saldo_livre = saldo - total_em_ordens
+    
+    print(f"\n   💰 TOTAIS:")
+    print(f"     Em ordens: {total_em_ordens:.2f} shares")
+    print(f"     Livre: {saldo_livre:.2f} shares")
 
 def main():
-    print(">>> 🚀 ROBÔ GRID TRADING - POLYMARKET <<<")
+    print(">>> 🤖 ROBÔ DE VENDAS AUTOMÁTICAS - BITCOIN <<<")
+    print(f">>> ⚙️ Configuração: {SHARES_POR_ORDEM} shares por ordem")
+    print(f">>> 🎯 Grid de vendas: {GRID_VENDAS}")
+    print(f">>> ⏱️ Intervalo: {INTERVALO_SEGUNDOS}s\n")
     
+    # Verifica chave privada
     key = os.getenv("PRIVATE_KEY")
-    client = ClobClient(
-        "https://clob.polymarket.com/", 
-        key=key, 
-        chain_id=137, 
-        signature_type=2, 
-        funder=PROXY_ADDRESS
-    )
-    client.set_api_creds(client.create_or_derive_api_creds())
+    if not key:
+        print("❌ PRIVATE_KEY não encontrada nas variáveis de ambiente!")
+        print("   Configure: export PRIVATE_KEY=sua_chave_privada")
+        return
     
-    print(f">>> ✅ Cofre: {PROXY_ADDRESS}")
-    print(f">>> 💰 Lucro por operação: ${LUCRO}\n")
+    # Inicializa cliente
+    try:
+        client = ClobClient(
+            "https://clob.polymarket.com/", 
+            key=key, 
+            chain_id=137, 
+            signature_type=2, 
+            funder=PROXY_ADDRESS
+        )
+        client.set_api_creds(client.create_or_derive_api_creds())
+        print("✅ Cliente CLOB inicializado com sucesso!")
+        print(f"   Token ID: {TOKEN_ID[:15]}...")
+    except Exception as e:
+        print(f"❌ Erro ao inicializar cliente CLOB: {e}")
+        return
     
-    # Rastrear ordens já criadas
-    compras_ja_criadas = set()
-    vendas_processadas = set()  # IDs de compras que já viraram venda
+    ciclo = 0
     
     while True:
-        print("\n" + "="*70)
-        print("--- ⏳ VERIFICANDO ORDENS ---")
+        ciclo += 1
+        print(f"\n{'='*60}")
+        print(f"🔄 CICLO {ciclo} - {time.strftime('%H:%M:%S')}")
+        print(f"{'='*60}")
         
-        compras_abertas, vendas_abertas, compras_executadas = get_ordens_e_posicoes(client)
-        
-        print(f"📊 Compras ABERTAS (aguardando): {sorted(compras_abertas.keys())}")
-        print(f"📊 Compras EXECUTADAS (posição): {sorted(compras_executadas.keys())}")
-        print(f"📊 Vendas abertas: {sorted(vendas_abertas.keys())}")
-        
-        # ============================================================
-        # PARTE 1: CRIAR ORDENS DE COMPRA
-        # ============================================================
-        print("\n🔵 CRIANDO ORDENS DE COMPRA...")
-        
-        for preco_compra in GRID_COMPRA:
-            # Já existe ordem aberta OU já temos posição nesse preço?
-            if preco_compra in compras_abertas or preco_compra in compras_executadas:
-                if preco_compra in compras_abertas:
-                    print(f"  ℹ️ Ordem de compra aberta a ${preco_compra:.2f}")
-                if preco_compra in compras_executadas:
-                    qtd = compras_executadas[preco_compra]['quantidade']
-                    print(f"  ✅ Posição: {qtd} shares compradas a ${preco_compra:.2f}")
-                compras_ja_criadas.add(preco_compra)
-                continue
+        try:
+            # 1. Obtém saldo atual
+            saldo_shares = obter_saldo_disponivel(client, TOKEN_ID)
             
-            # Já tentamos criar antes?
-            if preco_compra in compras_ja_criadas:
-                continue
+            # 2. Obtém ordens de venda ativas
+            ordens_venda_ativas = obter_ordens_venda_ativas(client, TOKEN_ID)
+            precos_ativos = [o['price'] for o in ordens_venda_ativas]
             
-            try:
-                qtd = calcular_quantidade_minima(preco_compra)
-                
-                client.create_and_post_order(
-                    OrderArgs(
-                        price=preco_compra, 
-                        size=qtd, 
-                        side=BUY, 
-                        token_id=TOKEN_ID
-                    )
-                )
-                
-                compras_ja_criadas.add(preco_compra)
-                print(f"  ✅ COMPRA criada: {qtd} shares a ${preco_compra:.2f}")
-                
-            except Exception as e:
-                erro_str = str(e).lower()
-                if "balance" in erro_str or "insufficient" in erro_str:
-                    print(f"  ⚠️ Sem saldo para ${preco_compra:.2f}")
-                else:
-                    print(f"  ❌ Erro: {e}")
-        
-        # ============================================================
-        # PARTE 2: CRIAR VENDAS APENAS PARA POSIÇÕES EXECUTADAS
-        # ============================================================
-        print("\n🟢 CRIANDO ORDENS DE VENDA (para posições compradas)...")
-        
-        if not compras_executadas:
-            print("  ℹ️ Nenhuma posição comprada ainda. Aguardando execução das compras...")
-        
-        for preco_compra, info in compras_executadas.items():
-            ordem_id = info['ordem_id']
-            qtd_comprada = info['quantidade']
-            preco_venda = round(preco_compra + LUCRO, 2)
+            # 3. Calcula onde deveríamos ter ordens
+            precos_desejados = calcular_precos_para_venda(saldo_shares)
             
-            # Já processamos essa compra?
-            if ordem_id in vendas_processadas:
-                continue
-            
-            # Já existe venda nesse preço?
-            if preco_venda in vendas_abertas:
-                print(f"  ℹ️ Já existe venda a ${preco_venda:.2f}")
-                vendas_processadas.add(ordem_id)
-                continue
-            
-            try:
-                client.create_and_post_order(
-                    OrderArgs(
-                        price=preco_venda,
-                        size=qtd_comprada,
-                        side=SELL,
-                        token_id=TOKEN_ID
-                    )
-                )
+            # 4. Se temos saldo suficiente para pelo menos uma ordem
+            if precos_desejados:
+                print(f"\n🎯 Estratégia para {saldo_shares:.2f} shares:")
+                print(f"   Preços desejados: {precos_desejados}")
                 
-                vendas_processadas.add(ordem_id)
-                print(f"  ✅ VENDA criada: {qtd_comprada} shares a ${preco_venda:.2f}")
-                print(f"     💰 Compra foi a ${preco_compra:.2f} → Lucro ${LUCRO:.2f}/share")
+                # 5. Cancela ordens que não deveriam mais existir
+                if ordens_venda_ativas:
+                    cancelar_ordens_antigas(client, TOKEN_ID, precos_desejados)
+                    # Atualiza lista após cancelamentos
+                    ordens_venda_ativas = obter_ordens_venda_ativas(client, TOKEN_ID)
+                    precos_ativos = [o['price'] for o in ordens_venda_ativas]
                 
-            except Exception as e:
-                erro_str = str(e).lower()
-                if "balance" in erro_str or "insufficient" in erro_str:
-                    print(f"  ⚠️ Sem shares para vender a ${preco_venda:.2f}")
-                else:
-                    print(f"  ❌ Erro: {e}")
+                # 6. Cria ordens faltantes
+                print(f"\n📈 Criando ordens faltantes...")
+                ordens_criadas = 0
+                
+                for preco in precos_desejados:
+                    if preco in precos_ativos:
+                        print(f"   ⏭️ Já existe ordem a ${preco:.2f}")
+                        continue
+                    
+                    # Calcula quantas ordens já temos nos preços mais altos
+                    # Isso garante que sempre priorizamos os preços mais altos
+                    ordens_acima = sum(1 for p in precos_ativos if p > preco)
+                    shares_comprometidas = ordens_acima * SHARES_POR_ORDEM
+                    
+                    # Verifica se ainda temos saldo livre para esta ordem
+                    if saldo_shares - shares_comprometidas >= SHARES_POR_ORDEM:
+                        if criar_ordem_venda(client, preco, SHARES_POR_ORDEM, TOKEN_ID):
+                            ordens_criadas += 1
+                            time.sleep(1)  # Delay para evitar rate limit
+                    else:
+                        print(f"   ⚠️ Saldo insuficiente para ordem a ${preco:.2f}")
+            
+            else:
+                print(f"\n⏭️ Saldo insuficiente para criar ordens")
+                print(f"   Mínimo necessário: {SHARES_POR_ORDEM} shares")
+            
+            # 7. Mostra resumo final
+            mostrar_resumo(client, TOKEN_ID)
+            
+        except Exception as e:
+            print(f"\n⚠️ ERRO NO CICLO: {e}")
+            import traceback
+            traceback.print_exc()
         
-        # Atualizar cache
-        compras_ja_criadas = set(compras_abertas.keys()) | set(compras_executadas.keys())
-        
-        print("\n" + "="*70)
-        print("⏰ Aguardando 60 segundos...\n")
-        time.sleep(60)
+        # 8. Aguarda próximo ciclo
+        print(f"\n⏳ Próximo ciclo em {INTERVALO_SEGUNDOS} segundos...")
+        for i in range(INTERVALO_SEGUNDOS, 0, -10):
+            if i <= 10:
+                print(f"   Reiniciando em {i}s...")
+            time.sleep(10 if i > 10 else i)
 
 if __name__ == "__main__":
     main()
