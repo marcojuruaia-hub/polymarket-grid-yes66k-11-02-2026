@@ -1,7 +1,7 @@
 import os
 import time
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OpenOrderParams, CancelOrderParams
+from py_clob_client.clob_types import OrderArgs, OpenOrderParams
 from py_clob_client.order_builder.constants import SELL
 
 # --- CONFIGURAÇÕES ---
@@ -121,7 +121,8 @@ def cancelar_ordens_antigas(client, token_id, precos_desejados):
             # 2. A ordem ainda não foi executada (size_matched == 0)
             if ordem['price'] not in precos_desejados and ordem['size_matched'] == 0:
                 try:
-                    client.cancel_order(CancelOrderParams(id=ordem['id']))
+                    # Método correto para cancelar ordem
+                    client.cancel_order(ordem['id'])
                     print(f"♻️ Cancelada ordem obsoleta a ${ordem['price']:.2f}")
                 except Exception as e:
                     print(f"⚠️ Erro ao cancelar ordem: {e}")
