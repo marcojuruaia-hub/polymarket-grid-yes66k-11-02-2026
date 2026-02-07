@@ -27,11 +27,11 @@ def extrair_id_limpo(dado):
 
 def scanner_bruto_definitivo():
     print("\n" + "═"*60)
-    print("🔎 LISTA COMPLETA: BITCOIN UP/DOWN FEB 7")
+    print("🔎 LISTA COMPLETA: BITCOIN UP/DOWN FEB 8")
     print("═"*60)
     try:
         # Busca o evento pelo slug exato que você mandou
-        slug = "bitcoin-up-or-down-on-february-7"
+        slug = "bitcoin-up-or-down-on-february-8"
         url = f"https://gamma-api.polymarket.com/events?slug={slug}"
         resp = requests.get(url).json()
         
