@@ -9,54 +9,63 @@ TOKEN_ID = "21639768904545427220464585903669395149753104733036853605098419574581
 PROXY_ADDRESS = "0x658293eF9454A2DD555eb4afcE6436aDE78ab20B"
 LUCRO = 0.01  # 1 centavo de lucro
 
-# Grid de compra (preços onde você QUER COMPRAR)
+# Grid de compra
 GRID_COMPRA = [0.83, 0.82, 0.81, 0.80, 0.79, 0.78, 0.76, 0.74, 0.72, 0.70, 0.65, 0.60, 0.55, 0.50, 0.40]
 
-# Dicionário para rastrear ordens criadas nesta sessão
-ordens_criadas = {
-    'compra': set(),
-    'venda': set()
-}
+# Rastrear ordens para evitar duplicatas
+ordens_compra_abertas = set()
+ordens_venda_criadas = set()
+compras_executadas_processadas = set()  # IDs de compras que já viraram venda
 
-def get_ordens_abertas(client):
-    """Retorna ordens abertas usando o método correto da API"""
+def get_ordens_por_status(client):
+    """Busca ordens abertas (LIVE) e executadas recentes"""
     try:
-        # Método correto: get_orders com status LIVE
-        response = client.get_orders(
-            token_id=TOKEN_ID,
-            status="LIVE"  # Apenas ordens ativas
-        )
+        # Ordens abertas (ainda não executadas)
+        ordens_live = client.get_orders(token_id=TOKEN_ID, status="LIVE")
         
-        compras_abertas = {}
-        vendas_abertas = {}
+        # Ordens executadas recentemente (para criar vendas)
+        ordens_matched = client.get_orders(token_id=TOKEN_ID, status="MATCHED")
         
-        for ordem in response:
+        compras_abertas = set()
+        vendas_abertas = set()
+        compras_executadas = []
+        
+        # Processar ordens abertas
+        for ordem in ordens_live:
             preco = round(float(ordem.get('price')), 2)
-            lado = ordem.get('side')
-            
-            if lado == 'BUY':
-                compras_abertas[preco] = ordem
-            elif lado == 'SELL':
-                vendas_abertas[preco] = ordem
+            if ordem.get('side') == 'BUY':
+                compras_abertas.add(preco)
+            elif ordem.get('side') == 'SELL':
+                vendas_abertas.add(preco)
         
-        return compras_abertas, vendas_abertas
+        # Processar ordens executadas (compras que viraram posição)
+        for ordem in ordens_matched:
+            if ordem.get('side') == 'BUY':
+                ordem_id = ordem.get('id')
+                preco = round(float(ordem.get('price')), 2)
+                size = float(ordem.get('size_matched', ordem.get('size', 0)))
+                
+                compras_executadas.append({
+                    'id': ordem_id,
+                    'preco': preco,
+                    'quantidade': size
+                })
+        
+        return compras_abertas, vendas_abertas, compras_executadas
         
     except Exception as e:
-        print(f"⚠️ Erro ao ler ordens: {e}")
-        # Retorna as que já criamos nesta sessão como fallback
-        compras_fallback = {p: None for p in ordens_criadas['compra']}
-        vendas_fallback = {p: None for p in ordens_criadas['venda']}
-        return compras_fallback, vendas_fallback
+        print(f"⚠️ Erro ao buscar ordens: {e}")
+        return set(), set(), []
 
 def calcular_quantidade_minima(preco):
-    """Calcula o mínimo de shares baseado na regra de $1 vs 5 shares"""
+    """Calcula o mínimo de shares"""
     if preco > 0.20:
         return 5.0
     else:
         return round(1.0 / preco, 2)
 
 def main():
-    print(">>> 🚀 ROBÔ V2: SEM DUPLICATAS <<<")
+    print(">>> 🚀 ROBÔ V3: SÓ VENDE DEPOIS DE COMPRAR <<<")
     
     key = os.getenv("PRIVATE_KEY")
     client = ClobClient(
@@ -69,90 +78,100 @@ def main():
     client.set_api_creds(client.create_or_derive_api_creds())
     
     print(f">>> ✅ Operando no Cofre: {PROXY_ADDRESS}")
-    print(f">>> 💰 Lucro configurado: ${LUCRO} por share\n")
+    print(f">>> 💰 Lucro: +${LUCRO} por share\n")
     
     while True:
-        print("\n" + "="*60)
-        print("--- ⏳ Verificando Status das Ordens ---")
+        print("\n" + "="*70)
+        print("--- ⏳ VERIFICANDO ORDENS ---")
         
-        compras_abertas, vendas_abertas = get_ordens_abertas(client)
+        compras_abertas, vendas_abertas, compras_executadas = get_ordens_por_status(client)
         
-        print(f"📊 Compras abertas: {sorted(compras_abertas.keys())}")
-        print(f"📊 Vendas abertas: {sorted(vendas_abertas.keys())}")
+        print(f"📊 Compras abertas (aguardando): {sorted(compras_abertas)}")
+        print(f"📊 Vendas abertas: {sorted(vendas_abertas)}")
+        print(f"📊 Compras executadas: {len(compras_executadas)}")
         
-        # PARTE 1: COLOCAR ORDENS DE COMPRA (sem duplicar)
-        print("\n🔵 Verificando ordens de COMPRA...")
+        # ==============================================================
+        # ETAPA 1: CRIAR ORDENS DE COMPRA (nos preços do grid)
+        # ==============================================================
+        print("\n🔵 ETAPA 1: Verificando ordens de COMPRA...")
+        
         for preco_compra in GRID_COMPRA:
-            # Verifica se já existe (na API ou nas que criamos)
-            if preco_compra in compras_abertas or preco_compra in ordens_criadas['compra']:
-                print(f"  ℹ️ Já existe ordem de compra a ${preco_compra:.2f}")
+            # Só cria se NÃO existe ordem aberta nesse preço
+            if preco_compra in compras_abertas or preco_compra in ordens_compra_abertas:
+                print(f"  ℹ️ Já existe compra a ${preco_compra:.2f}")
                 continue
             
             try:
-                qtd_compra = calcular_quantidade_minima(preco_compra)
+                qtd = calcular_quantidade_minima(preco_compra)
                 
                 client.create_and_post_order(
                     OrderArgs(
                         price=preco_compra, 
-                        size=qtd_compra, 
+                        size=qtd, 
                         side=BUY, 
                         token_id=TOKEN_ID
                     )
                 )
                 
-                # Marca como criada para não duplicar
-                ordens_criadas['compra'].add(preco_compra)
-                print(f"  ✅ COMPRA criada: {qtd_compra} shares a ${preco_compra:.2f}")
+                ordens_compra_abertas.add(preco_compra)
+                print(f"  ✅ COMPRA criada: {qtd} shares a ${preco_compra:.2f}")
                 
             except Exception as e:
                 if "balance" in str(e).lower() or "insufficient" in str(e).lower():
-                    print(f"  ⚠️ Sem saldo para comprar a ${preco_compra:.2f}")
+                    print(f"  ⚠️ Sem saldo para ${preco_compra:.2f}")
                 else:
-                    print(f"  ❌ Erro ao comprar a ${preco_compra:.2f}: {e}")
+                    print(f"  ❌ Erro: {e}")
         
-        # PARTE 2: COLOCAR ORDENS DE VENDA (para as compras que existem)
-        print("\n🟢 Verificando ordens de VENDA...")
+        # ==============================================================
+        # ETAPA 2: CRIAR VENDAS PARA COMPRAS QUE FORAM EXECUTADAS
+        # ==============================================================
+        print("\n🟢 ETAPA 2: Criando VENDAS para compras executadas...")
         
-        # Unir compras da API com as que criamos
-        todos_precos_compra = set(compras_abertas.keys()) | ordens_criadas['compra']
-        
-        for preco_compra in todos_precos_compra:
-            # Calcular preço de venda com lucro
-            preco_venda = round(preco_compra + LUCRO, 2)
+        for compra in compras_executadas:
+            ordem_id = compra['id']
+            preco_comprado = compra['preco']
+            qtd_comprada = compra['quantidade']
             
-            # Verifica se já existe venda
-            if preco_venda in vendas_abertas or preco_venda in ordens_criadas['venda']:
-                print(f"  ℹ️ Já existe ordem de venda a ${preco_venda:.2f}")
+            # Já processamos essa compra antes?
+            if ordem_id in compras_executadas_processadas:
+                continue
+            
+            # Calcular preço de venda (1 centavo acima)
+            preco_venda = round(preco_comprado + LUCRO, 2)
+            
+            # Já existe venda nesse preço?
+            if preco_venda in vendas_abertas or preco_venda in ordens_venda_criadas:
+                print(f"  ℹ️ Já existe venda a ${preco_venda:.2f}")
+                compras_executadas_processadas.add(ordem_id)
                 continue
             
             try:
-                qtd_venda = calcular_quantidade_minima(preco_compra)
-                
                 client.create_and_post_order(
                     OrderArgs(
-                        price=preco_venda, 
-                        size=qtd_venda, 
-                        side=SELL, 
+                        price=preco_venda,
+                        size=qtd_comprada,
+                        side=SELL,
                         token_id=TOKEN_ID
                     )
                 )
                 
-                # Marca como criada
-                ordens_criadas['venda'].add(preco_venda)
-                print(f"  ✅ VENDA criada: {qtd_venda} shares a ${preco_venda:.2f} (compra foi a ${preco_compra:.2f})")
+                ordens_venda_criadas.add(preco_venda)
+                compras_executadas_processadas.add(ordem_id)
+                
+                print(f"  ✅ VENDA criada: {qtd_comprada} shares a ${preco_venda:.2f}")
+                print(f"     (compra foi a ${preco_comprado:.2f}, lucro de ${LUCRO:.2f}/share)")
                 
             except Exception as e:
                 if "balance" in str(e).lower() or "insufficient" in str(e).lower():
-                    print(f"  ⚠️ Sem shares para vender a ${preco_venda:.2f}")
+                    print(f"  ⚠️ Sem shares para vender")
                 else:
-                    print(f"  ❌ Erro ao vender a ${preco_venda:.2f}: {e}")
+                    print(f"  ❌ Erro ao vender: {e}")
         
-        print("\n📋 Resumo desta sessão:")
-        print(f"   Compras criadas: {len(ordens_criadas['compra'])}")
-        print(f"   Vendas criadas: {len(ordens_criadas['venda'])}")
+        # Atualizar cache de ordens abertas
+        ordens_compra_abertas = compras_abertas
         
-        print("\n" + "="*60)
-        print(f"⏰ Ciclo finalizado. Aguardando 30s...")
+        print("\n" + "="*70)
+        print("⏰ Aguardando 30s...\n")
         time.sleep(30)
 
 if __name__ == "__main__":
